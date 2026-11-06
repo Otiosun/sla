@@ -16,14 +16,14 @@ describe("PUBLISHED V4 resources never invent unapproved odds, items or quantiti
       });
     }
   });
-  it("rejects invalid quantities, duplicate items, extra fields and client-chosen rolls", () => {
+  it("rejects invalid quantities, duplicate item-and-quantity outcomes, extra fields and client-chosen rolls", () => {
     const invalid: unknown[] = [
       [{ kind: "ITEM", itemId: ITEM_ID, quantity: 0, weight: 10000 }],
       [{ kind: "ITEM", itemId: ITEM_ID, quantity: -1, weight: 10000 }],
       [{ kind: "ITEM", itemId: ITEM_ID, quantity: 1.5, weight: 10000 }],
       [
         { kind: "ITEM", itemId: ITEM_ID, quantity: 1, weight: 5000 },
-        { kind: "ITEM", itemId: ITEM_ID, quantity: 2, weight: 5000 },
+        { kind: "ITEM", itemId: ITEM_ID, quantity: 1, weight: 5000 },
       ],
       [{ kind: "NONE", weight: 10000, itemId: ITEM_ID }],
     ];

@@ -44,7 +44,7 @@ describe("solo expedition action-driven clock", () => {
   });
 
   it("exposes only the approved V1 baseline action costs", () => {
-    expect(EXPEDITION_WEEKLY_LIMIT).toBe(3);
+    expect(EXPEDITION_WEEKLY_LIMIT).toBe(6);
     expect(EXPEDITION_DURATION_MINUTES).toBe(720);
     expect(EXPEDITION_ACTION_MINUTES).toEqual({
       SEARCH_POKEMON: 30,

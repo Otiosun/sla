@@ -31,6 +31,9 @@ import { captureProbability } from "./probability.js";
 const scope = parseIdempotencyScope("capture.attempt");
 if (!scope.ok) throw new Error("Canonical capture idempotency scope is invalid");
 const CAPTURE_ATTEMPT_SCOPE = scope.value;
+export function captureAttemptIdempotencyKey(playerId: string, externalKey: string) {
+  return createIdempotencyKey(CAPTURE_ATTEMPT_SCOPE, `${playerId}:${externalKey.trim()}`);
+}
 
 class CaptureRollback extends Error {
   public constructor(public readonly appError: AppError) {
@@ -191,10 +194,7 @@ export class CaptureService {
         captureValidationError("Capture request is invalid", { issues: boundary.error.issues }),
       );
     }
-    const idempotency = createIdempotencyKey(
-      CAPTURE_ATTEMPT_SCOPE,
-      `${input.playerId}:${input.idempotencyKey.trim()}`,
-    );
+    const idempotency = captureAttemptIdempotencyKey(input.playerId, input.idempotencyKey);
     if (!idempotency.ok) return idempotency;
     const targetWildNo = input.targetWildNo ?? 1;
     const fingerprint = semanticFingerprint({ ...input, targetWildNo });

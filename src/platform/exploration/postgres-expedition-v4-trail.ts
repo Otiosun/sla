@@ -1,21 +1,23 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
+import { expeditionOperationAllowed } from "../../modules/exploration/expedition-runtime-audience.js";
 import type { ExpeditionSnapshot } from "../../modules/exploration/expedition-state.js";
 import type { PlayerId } from "../../shared-kernel/ids.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import {
-  readStoredSearchOutcome,
   type EncounterOutcomeEffect,
+  readStoredSearchOutcome,
   type StoredSearchOutcome,
 } from "./expedition-search-outcome-effect.js";
-import {
-  readVerifiedExpeditionSearchEncounterPreview,
-  type VerifiedExpeditionSearchEncounterPreview,
-} from "./postgres-expedition-search-encounter-preview.js";
+import { readSearchTarget } from "./expedition-search-target.js";
 import type {
   PostgresExpeditionRepository,
   StoredSearchActionTransition,
 } from "./postgres-expedition-repository.js";
+import {
+  readVerifiedExpeditionSearchEncounterPreview,
+  type VerifiedExpeditionSearchEncounterPreview,
+} from "./postgres-expedition-search-encounter-preview.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 
@@ -87,6 +89,7 @@ async function readVerifiedTrailSource(
   if (found.rows.length !== 1 || source === undefined || !UUID.test(source.id)) {
     return err(appError("FLOW_BLOCKED", "The latest search has no eligible trail"));
   }
+  const target = await readSearchTarget(client, source.id);
   const expected = createHash("sha256")
     .update(
       JSON.stringify([
@@ -94,6 +97,7 @@ async function readVerifiedTrailSource(
         expedition.expeditionId,
         (expedition.revision - 1n).toString(),
         30,
+        ...(target === null ? [] : ["target:" + target]),
       ]),
     )
     .digest("hex");
@@ -170,11 +174,7 @@ export class PostgresExpeditionV4StagingTrailFollow {
   ) {}
 
   public async readPending(expedition: ExpeditionSnapshot): Promise<string | null> {
-    if (
-      process.env.APP_ENV !== "test" ||
-      process.env.NODE_ENV !== "test" ||
-      process.env.WHATSAPP_ENABLED !== "false"
-    ) {
+    if (!expeditionOperationAllowed(expedition.playerId)) {
       return null;
     }
     const client = await this.pool.connect();
@@ -189,12 +189,7 @@ export class PostgresExpeditionV4StagingTrailFollow {
   public async execute(
     input: ExpeditionV4TrailFollowInput,
   ): Promise<Result<ExpeditionV4TrailFollowResult>> {
-    if (
-      process.env.APP_ENV !== "test" ||
-      process.env.NODE_ENV !== "test" ||
-      process.env.WHATSAPP_ENABLED !== "false" ||
-      !UUID.test(input.sourceOutcomeId)
-    ) {
+    if (!expeditionOperationAllowed(input.playerId) || !UUID.test(input.sourceOutcomeId)) {
       return err(appError("FLOW_BLOCKED", "Trail following requires isolated development"));
     }
     const action = await this.expedition.executeFollowTrail({
@@ -205,7 +200,12 @@ export class PostgresExpeditionV4StagingTrailFollow {
         if (source.value !== input.sourceOutcomeId) {
           return err(appError("FLOW_BLOCKED", "A different or stale trail was requested"));
         }
-        const created = await this.encounter(client, persisted);
+        const target = await readSearchTarget(client, source.value);
+        const created = await this.encounter(
+          client,
+          persisted,
+          target === null ? undefined : { speciesSlug: target, followTrail: true },
+        );
         if (!created.ok) return created;
         if (!UUID.test(created.value.effectRef)) {
           return err(appError("FLOW_BLOCKED", "Canonical encounter was not created"));

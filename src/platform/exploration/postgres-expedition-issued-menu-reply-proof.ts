@@ -99,6 +99,7 @@ export class PostgresExpeditionIssuedMenuReplyProof {
         AND encounter.area_id = expedition.area_id
         AND encounter.revision = menu.encounter_revision
         AND encounter.status = 'ENGAGED'
+          AND (encounter.expires_at IS NULL OR encounter.expires_at>clock_timestamp())
        JOIN content_release_pointers pointer ON pointer.pointer_key = 'ACTIVE'
        JOIN content_releases release
          ON release.id = pointer.content_release_id

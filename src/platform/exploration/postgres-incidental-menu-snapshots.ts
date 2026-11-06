@@ -1,15 +1,15 @@
 import { randomUUID } from "node:crypto";
 import type { Pool } from "pg";
 import { z } from "zod";
-import { RulesetConfigSchema, EffectConfigSchemas } from "../../modules/catalog/contracts.js";
-import {
-  renderExpeditionV4IncidentalPanel,
-  type IncidentalEncounterPanel,
-  type IncidentalBallKind,
-} from "../../modules/exploration/expedition-v4-incidental-panel.js";
+import { EffectConfigSchemas, RulesetConfigSchema } from "../../modules/catalog/contracts.js";
 import type { IncidentalCaptureMenuSnapshot } from "../../modules/exploration/expedition-incidental-capture-action.js";
-import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
+import {
+  type IncidentalBallKind,
+  type IncidentalEncounterPanel,
+  renderExpeditionV4IncidentalPanel,
+} from "../../modules/exploration/expedition-v4-incidental-panel.js";
 import type { PlayerId } from "../../shared-kernel/ids.js";
+import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 
 const choiceSchema = z.discriminatedUnion("kind", [
   z.object({ optionNo: z.literal(1), kind: z.literal("BATTLE") }),
@@ -169,6 +169,7 @@ export class PostgresIncidentalMenuSnapshots {
           AND species.species_id=(wild.pokemon_snapshot->>'speciesId')::uuid
          WHERE outcome.id=$1 AND outcome.player_id=$2 AND outcome.kind='INCIDENTAL'
            AND expedition.phase='ACTIVE' AND encounter.status='ENGAGED'
+          AND (encounter.expires_at IS NULL OR encounter.expires_at>clock_timestamp())
          FOR SHARE OF encounter`,
         [input.outcomeId, input.playerId],
       );

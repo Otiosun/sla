@@ -149,6 +149,8 @@ export interface CreateEncounterInput {
   readonly playerId: PlayerId;
   readonly idempotencyKey: string;
   readonly encounterTableSlug?: string;
+  /** Known, locally eligible species; never a narrator override. */
+  readonly searchTarget?: { readonly speciesSlug: string; readonly followTrail?: boolean };
   /** Optional narrator/admin species override. Area/time still supplies the local difficulty band. */
   readonly forcedFormId?: string;
   /** Optional narrator/admin level override. Does not alter species eligibility for random spawns. */

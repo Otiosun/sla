@@ -4,7 +4,7 @@
  */
 export type ExpeditionPeriod = "DAY" | "NIGHT";
 
-export const EXPEDITION_WEEKLY_LIMIT = 3;
+export const EXPEDITION_WEEKLY_LIMIT = 6;
 export const EXPEDITION_DURATION_MINUTES = 12 * 60;
 
 export const EXPEDITION_ACTION_MINUTES = Object.freeze({

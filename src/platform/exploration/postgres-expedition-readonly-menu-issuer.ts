@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type { Pool } from "pg";
-import type { PlayerId } from "../../shared-kernel/ids.js";
+import { expeditionOperationAllowed } from "../../modules/exploration/expedition-runtime-audience.js";
 import { renderExpeditionV4IncidentalPanel } from "../../modules/exploration/expedition-v4-incidental-panel.js";
-import { readVerifiedExpeditionSearchEncounterPreview } from "./postgres-expedition-search-encounter-preview.js";
-import { readOfflineExpeditionBattleEligibility } from "./postgres-expedition-battle-eligibility.js";
+import type { PlayerId } from "../../shared-kernel/ids.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
+import { readOfflineExpeditionBattleEligibility } from "./postgres-expedition-battle-eligibility.js";
+import { readVerifiedExpeditionSearchEncounterPreview } from "./postgres-expedition-search-encounter-preview.js";
 
 export interface IssuedReadOnlyExpeditionMenu {
   readonly menuId: string;
@@ -43,6 +44,7 @@ export class PostgresExpeditionReadOnlyMenuIssuer {
   constructor(
     private readonly pool: Pool,
     private readonly issuanceMode: "READ_ONLY" | "ACTIONABLE" = "READ_ONLY",
+    private readonly combiningCount = 0,
   ) {}
 
   async issue(
@@ -50,12 +52,7 @@ export class PostgresExpeditionReadOnlyMenuIssuer {
   ): Promise<Result<IssuedReadOnlyExpeditionMenu>> {
     // ACTIONABLE remains strictly limited to synthetic, offline test runs.
     // Never generate a spend-authorizing outbound message with live Baileys.
-    if (
-      this.issuanceMode === "ACTIONABLE" &&
-      (process.env.APP_ENV !== "test" ||
-        process.env.NODE_ENV !== "test" ||
-        process.env.WHATSAPP_ENABLED !== "false")
-    ) {
+    if (this.issuanceMode === "ACTIONABLE" && !expeditionOperationAllowed(input.playerId)) {
       return err(appError("FLOW_BLOCKED", "Actionable menus require isolated offline staging"));
     }
     if (
@@ -110,6 +107,7 @@ export class PostgresExpeditionReadOnlyMenuIssuer {
           AND encounter.player_id = outcome.player_id
           AND encounter.area_id = expedition.area_id
           AND encounter.status = 'ENGAGED'
+          AND (encounter.expires_at IS NULL OR encounter.expires_at>clock_timestamp())
           AND encounter.revision = $4
           AND NOT EXISTS (
             SELECT 1 FROM battles battle
@@ -395,7 +393,7 @@ export class PostgresExpeditionReadOnlyMenuIssuer {
           balls: availableBalls,
           canIgnore,
           ignoreMinutes: 10,
-          combiningCount: 0,
+          combiningCount: this.combiningCount,
         });
         if (!panel.ok) {
           await client.query("ROLLBACK");

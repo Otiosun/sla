@@ -1,0 +1,47 @@
+name: Synthetic encrypted restore 8e5c076d
+
+on:
+  push:
+    branches: [ci/synthetic-restore-8e5c076d]
+
+permissions:
+  contents: read
+
+jobs:
+  encrypted-restore:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:18.6-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+        env:
+          POSTGRES_USER: pokemon
+          POSTGRES_PASSWORD: test-only-password
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pokemon -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      APP_ENV: test
+      NODE_ENV: test
+      WHATSAPP_ENABLED: "false"
+      DATABASE_URL: postgresql://pokemon:test-only-password@127.0.0.1:5432/postgres
+      ALLOW_DISPOSABLE_POSTGRES_TESTS: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24.19.0
+          package-manager-cache: false
+      - name: Install locked dependencies
+        run: |
+          npm install --global pnpm@11.23.0
+          pnpm install --frozen-lockfile --ignore-scripts
+      - name: Verify encrypted PG18 backup restores older state into independent clone
+        run: node --test tests/release/pg18-encrypted-clone-restore.test.mjs

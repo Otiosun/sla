@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
 import type { Pool } from "pg";
-import type { PlayerId } from "../../shared-kernel/ids.js";
-import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
+import { expeditionOperationAllowed } from "../../modules/exploration/expedition-runtime-audience.js";
 import {
   incomingMessageFingerprint,
   type MessageHandlerContext,
 } from "../../modules/messaging/contracts.js";
+import type { PlayerId } from "../../shared-kernel/ids.js";
+import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 
 interface EndRecoveryRow {
   readonly expedition_id: string;
@@ -30,9 +31,7 @@ export class PostgresExpeditionEndConfirmationRecovery {
   }): Promise<Result<{ readonly elapsedMinutes: number } | null>> {
     const message = input.context.message;
     if (
-      process.env.APP_ENV !== "test" ||
-      process.env.NODE_ENV !== "test" ||
-      process.env.WHATSAPP_ENABLED !== "false" ||
+      !expeditionOperationAllowed(input.playerId) ||
       message.provider !== "baileys" ||
       message.text?.trim().toLocaleLowerCase("pt-BR") !== "/explorar encerrar confirmar"
     ) {
@@ -92,7 +91,9 @@ export class PostgresExpeditionEndConfirmationRecovery {
     }
     const revision = BigInt(receipt.revision);
     const expected = createHash("sha256")
-      .update(JSON.stringify(["END", receipt.expedition_id, (revision - 1n).toString(), "VOLUNTARY"]))
+      .update(
+        JSON.stringify(["END", receipt.expedition_id, (revision - 1n).toString(), "VOLUNTARY"]),
+      )
       .digest("hex");
     if (
       !/^[a-f0-9-]{36}$/iu.test(receipt.expedition_id) ||

@@ -1,10 +1,16 @@
 import { EXPEDITION_WEEKLY_LIMIT } from "./expedition-clock.js";
 
+/** Owner-approved on 04/11/2026; explicit world configuration may override it. */
+export const DEFAULT_EXPEDITION_TIME_ZONE = "America/Sao_Paulo";
+
 /**
- * Calendar policy only. The authoritative timezone must come from a
- * reviewed world configuration, never implicitly from the bot host.
+ * Monday 00:00 in the configured world timezone. The default is an approved
+ * product decision, never implicitly the bot host's timezone.
  */
-export function expeditionWeekKey(instant: Date, timeZone: string): string {
+export function expeditionWeekKey(
+  instant: Date,
+  timeZone: string = DEFAULT_EXPEDITION_TIME_ZONE,
+): string {
   if (!Number.isFinite(instant.getTime())) {
     throw new RangeError("Expedition timestamp must be a valid instant");
   }

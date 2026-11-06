@@ -20,6 +20,7 @@ export interface CreateWorldServiceSessionWrite {
   readonly areaId: string;
   readonly serviceKind: WorldServiceKind;
   readonly sceneProofId: string | null;
+  readonly expeditionId?: string;
   readonly createdAt: Date;
 }
 
@@ -38,6 +39,11 @@ export interface SetWorldServicePromptWrite {
 }
 
 export interface WorldServiceSessionTransaction {
+  expeditionAdmission?(
+    playerId: PlayerId,
+    areaId: string,
+    serviceKind: WorldServiceKind,
+  ): Promise<string | null>;
   insertSceneProof(input: InsertSceneProofWrite): Promise<SceneProofRecord>;
   claimSceneProof(input: ClaimSceneProofWrite): Promise<SceneProofRecord | null>;
   activeSession(playerId: PlayerId, lock?: boolean): Promise<WorldServiceSessionRecord | null>;

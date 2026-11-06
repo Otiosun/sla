@@ -1,4 +1,6 @@
 export interface BaileysContextInfoLike {
+  readonly isForwarded?: boolean | null;
+  readonly forwardingScore?: number | null;
   readonly stanzaId?: string | null;
   readonly mentionedJid?: readonly string[] | null;
 }

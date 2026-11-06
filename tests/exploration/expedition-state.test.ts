@@ -3,9 +3,9 @@ import { expeditionClock } from "../../src/modules/exploration/expedition-clock.
 import {
   advanceExpedition,
   changeExpeditionPeriod,
+  type ExpeditionSnapshot,
   endExpedition,
   expeditionRequiresReport,
-  type ExpeditionSnapshot,
 } from "../../src/modules/exploration/expedition-state.js";
 
 const WEEK = "2026-10-19";
@@ -143,7 +143,7 @@ describe("expedition session state transitions", () => {
       expedition: first.value.expedition,
       minutes: 15,
       weekKey: "2026-10-26",
-      consumedThisWeek: 3,
+      consumedThisWeek: 6,
       expectedRevision: 1n,
     });
 
@@ -161,11 +161,26 @@ describe("expedition session state transitions", () => {
     });
   });
 
-  it("refuses a fourth first action without consuming time", () => {
+  it("accepts the fourth through sixth expedition with the same 30 internal minutes", () => {
+    for (const used of [3, 4, 5]) {
+      expect(advance(preparing(), 30, used)).toMatchObject({
+        ok: true,
+        value: {
+          consumedWeeklySlot: true,
+          expedition: { phase: "ACTIVE", elapsedMinutes: 30, consumedWeekKey: WEEK },
+        },
+      });
+    }
+  });
+
+  it("refuses a seventh first action without consuming time", () => {
     const original = preparing();
-    expect(advance(original, 30, 3)).toMatchObject({
+    expect(advance(original, 30, 6)).toMatchObject({
       ok: false,
-      error: { code: "FLOW_BLOCKED" },
+      error: {
+        code: "FLOW_BLOCKED",
+        details: { userMessage: "Você já utilizou suas 6 expedições desta semana." },
+      },
     });
     expect(original).toEqual(preparing());
   });

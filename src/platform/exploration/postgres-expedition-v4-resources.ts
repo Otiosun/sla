@@ -2,10 +2,11 @@ import { createHmac, randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import { z } from "zod";
 import { EconomyService } from "../../modules/economy/service.js";
+import { expeditionOperationAllowed } from "../../modules/exploration/expedition-runtime-audience.js";
 import type { ExpeditionSnapshot } from "../../modules/exploration/expedition-state.js";
-import { economyRepositoryWithinTransaction } from "../economy/postgres-economy-repository.js";
-import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import type { PlayerId } from "../../shared-kernel/ids.js";
+import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
+import { economyRepositoryWithinTransaction } from "../economy/postgres-economy-repository.js";
 import type {
   PostgresExpeditionRepository,
   StoredSearchActionTransition,
@@ -42,8 +43,11 @@ export function choosePublishedResource(entries: unknown, roll: number): Result<
     );
   }
   if (
-    new Set(parsed.data.map((entry) => (entry.kind === "ITEM" ? entry.itemId : "NONE"))).size !==
-    parsed.data.length
+    new Set(
+      parsed.data.map((entry) =>
+        entry.kind === "ITEM" ? entry.itemId + ":" + entry.quantity : "NONE",
+      ),
+    ).size !== parsed.data.length
   ) {
     return err(appError("FLOW_BLOCKED", "Published resource entries contain duplicate results"));
   }
@@ -225,11 +229,7 @@ export class PostgresExpeditionV4StagingResourceSearch {
   ) {}
 
   public async execute(input: ResourceSearchInput): Promise<Result<ResourceSearchResult>> {
-    if (
-      process.env.APP_ENV !== "test" ||
-      process.env.NODE_ENV !== "test" ||
-      process.env.WHATSAPP_ENABLED !== "false"
-    ) {
+    if (!expeditionOperationAllowed(input.playerId)) {
       return err(appError("FLOW_BLOCKED", "Resources require isolated development"));
     }
     const action = await this.expedition.executeResourceSearch({

@@ -39,7 +39,10 @@ describe("multi-wild capture/flee wiring", () => {
     const runtime = fs.readFileSync("src/runtime/compose-whatsapp-runtime.ts", "utf8");
     expect(runtime).toContain("new PostgresCaptureRepository");
     expect(runtime).toContain("new PostgresCaptureBallReader");
-    expect(runtime.match(/captureBalls/g)?.length ?? 0).toBeGreaterThanOrEqual(3);
+    expect(runtime).toMatch(/captureBalls,\s+presentation:/);
+    expect(runtime).toContain("createPveSceneConversationResolver(pveSceneDependencies)");
+    expect(runtime).toContain("createPveSceneRoutes(pveSceneDependencies)");
+    expect(runtime).toMatch(/createCombatSceneRuntime\(\s*pool,\s*pveSceneDependencies,/);
   });
   it("falls back to battles.encounter_id for terminal wild writeback", () => {
     const battle = fs.readFileSync("src/platform/battle/postgres-battle-repository.ts", "utf8");

@@ -51,6 +51,26 @@ function route(
 }
 
 describe("command router normalization", () => {
+  it("treats /cena as an annotation of one embedded combat directive", async () => {
+    let original: string | null | undefined;
+    const movement = {
+      ...route("movimento", [], "STANDARD", (ctx) => {
+        original = ctx.originalMessageText;
+      }),
+      allowEmbedded: true,
+    };
+    const router = new MessageRouter([
+      movement,
+      { ...route("trocar"), allowEmbedded: true },
+      { ...route("cena"), allowEmbedded: true, commandAnnotation: true },
+    ]);
+    const text = "/cena caminho caminho /movimento 1 caminho";
+    expect(await router.dispatch(context(incoming(text)))).toMatchObject({ ok: true });
+    expect(original).toBe(text);
+    expect(await router.dispatch(context(incoming(text + " /trocar 2")))).toMatchObject({
+      ok: false,
+    });
+  });
   it("folds Portuguese diacritics and casing on the command token only", async () => {
     let observedText: string | null = null;
     const router = new MessageRouter([

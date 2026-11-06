@@ -2,63 +2,64 @@ import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { ManualClock } from "../../src/platform/clock/index.js";
-import { runMigrations } from "../../src/platform/db/migrations.js";
-import { PostgresExpeditionRepository } from "../../src/platform/exploration/postgres-expedition-repository.js";
-import { PostgresExpeditionV4EventHistoryReader } from "../../src/platform/exploration/postgres-expedition-v4-event-history-reader.js";
-import { PostgresExpeditionV4StatusReader } from "../../src/platform/exploration/postgres-expedition-v4-status-reader.js";
-import { PostgresExpeditionResourceConfirmationRecovery } from "../../src/platform/exploration/postgres-expedition-resource-confirmation-recovery.js";
-import {
-  PublishedResourceLootPolicy,
-  PostgresExpeditionV4StagingResourceSearch,
-} from "../../src/platform/exploration/postgres-expedition-v4-resources.js";
-import { PostgresExpeditionV4StagingTrailFollow } from "../../src/platform/exploration/postgres-expedition-v4-trail.js";
-import { PostgresExpeditionTrailConfirmationRecovery } from "../../src/platform/exploration/postgres-expedition-trail-confirmation-recovery.js";
-import { createDirectEncounterEffect } from "../../src/platform/exploration/expedition-direct-encounter-effect.js";
-import { PostgresExpeditionV4StagingSearch } from "../../src/platform/exploration/postgres-expedition-v4-search.js";
-import { PostgresExpeditionSearchSentProof } from "../../src/platform/exploration/postgres-expedition-search-sent-proof.js";
-import { PostgresExpeditionQuotedEncounterProof } from "../../src/platform/exploration/postgres-expedition-quoted-encounter-proof.js";
-import { PostgresExpeditionIssuedMenuReplyProof } from "../../src/platform/exploration/postgres-expedition-issued-menu-reply-proof.js";
-import { PostgresExpeditionReadOnlyMenuIssuer } from "../../src/platform/exploration/postgres-expedition-readonly-menu-issuer.js";
-import { PostgresExpeditionOfflineActionableMenuIssuer } from "../../src/platform/exploration/postgres-expedition-offline-actionable-menu-issuer.js";
-import { PostgresExpeditionCaptureConfirmationRecovery } from "../../src/platform/exploration/postgres-expedition-capture-confirmation-recovery.js";
-import { PostgresExpeditionIgnoreConfirmationRecovery } from "../../src/platform/exploration/postgres-expedition-ignore-confirmation-recovery.js";
-import { PostgresExpeditionBattleConfirmationRecovery } from "../../src/platform/exploration/postgres-expedition-battle-confirmation-recovery.js";
-import { PostgresExpeditionEndConfirmationRecovery } from "../../src/platform/exploration/postgres-expedition-end-confirmation-recovery.js";
-import { PostgresExpeditionTravelConfirmationRecovery } from "../../src/platform/exploration/postgres-expedition-travel-confirmation-recovery.js";
-import { WorldService } from "../../src/modules/world/service.js";
-import { worldRepositoryWithinTransaction } from "../../src/platform/world/postgres-world-repository.js";
-import { ExpeditionCanonicalChoiceStagingResolver } from "../../src/modules/exploration/expedition-canonical-choice-staging.js";
-import { PlayerRegistrationService } from "../../src/modules/player/registration-service.js";
-import { PostgresPlayerOnboardingRepository } from "../../src/platform/player/postgres-player-onboarding-repository.js";
-import { CaptureService } from "../../src/modules/capture/service.js";
-import { PostgresCaptureRepository } from "../../src/platform/capture/postgres-capture-repository.js";
-import { AesEncounterSeedProvider } from "../../src/platform/rng/encrypted-seed-provider.js";
-import { AesBattleSeedReader } from "../../src/platform/rng/battle-seed-reader.js";
-import { PostgresExpeditionOfflineBattleStart } from "../../src/platform/exploration/postgres-expedition-offline-battle-start.js";
 import type { CaptureContext } from "../../src/modules/capture/contracts.js";
-import { ExpeditionSearchEngagementAfterSent } from "../../src/modules/exploration/expedition-search-engagement-after-sent.js";
-import { EncounterService } from "../../src/modules/encounter/service.js";
+import { CaptureService } from "../../src/modules/capture/service.js";
 import { EncounterOperationalReadService } from "../../src/modules/encounter/operational-read-service.js";
+import { EncounterService } from "../../src/modules/encounter/service.js";
+import { ExpeditionCanonicalChoiceStagingResolver } from "../../src/modules/exploration/expedition-canonical-choice-staging.js";
 import { ExpeditionQuotedReplyReadOnlyStagingResolver } from "../../src/modules/exploration/expedition-quoted-reply-readonly-staging.js";
+import { ExpeditionSearchEngagementAfterSent } from "../../src/modules/exploration/expedition-search-engagement-after-sent.js";
+import { ExpeditionSearchPostSentHook } from "../../src/modules/exploration/expedition-search-post-sent-hook.js";
 import {
   IncomingMessageSchema,
   incomingMessageFingerprint,
   type MessageHandlerContext,
 } from "../../src/modules/messaging/contracts.js";
-import { MessagingService, OutboxWorker } from "../../src/modules/messaging/service.js";
 import { MessageRouter } from "../../src/modules/messaging/router.js";
-import { ExpeditionSearchPostSentHook } from "../../src/modules/exploration/expedition-search-post-sent-hook.js";
-import { PostgresMessagingRepository } from "../../src/platform/messaging/postgres-messaging-repository.js";
+import { MessagingService, OutboxWorker } from "../../src/modules/messaging/service.js";
+import { PlayerRegistrationService } from "../../src/modules/player/registration-service.js";
+import { WorldService } from "../../src/modules/world/service.js";
+import { PostgresCaptureRepository } from "../../src/platform/capture/postgres-capture-repository.js";
+import { ManualClock, SystemClock } from "../../src/platform/clock/index.js";
+import { runMigrations } from "../../src/platform/db/migrations.js";
 import {
-  PostgresEncounterRepository,
   encounterRepositoryWithinTransaction,
+  PostgresEncounterRepository,
 } from "../../src/platform/encounter/postgres-encounter-repository.js";
+import { createDirectEncounterEffect } from "../../src/platform/exploration/expedition-direct-encounter-effect.js";
 import { PublishedSearchOutcomePolicy } from "../../src/platform/exploration/expedition-published-outcome-policy.js";
 import {
   createSearchOutcomeEffect,
   readStoredSearchOutcome,
 } from "../../src/platform/exploration/expedition-search-outcome-effect.js";
+import { PostgresExpeditionBattleConfirmationRecovery } from "../../src/platform/exploration/postgres-expedition-battle-confirmation-recovery.js";
+import { PostgresExpeditionCaptureConfirmationRecovery } from "../../src/platform/exploration/postgres-expedition-capture-confirmation-recovery.js";
+import { PostgresExpeditionEndConfirmationRecovery } from "../../src/platform/exploration/postgres-expedition-end-confirmation-recovery.js";
+import { PostgresExpeditionIgnoreConfirmationRecovery } from "../../src/platform/exploration/postgres-expedition-ignore-confirmation-recovery.js";
+import { PostgresExpeditionIssuedMenuReplyProof } from "../../src/platform/exploration/postgres-expedition-issued-menu-reply-proof.js";
+import { PostgresExpeditionOfflineActionableMenuIssuer } from "../../src/platform/exploration/postgres-expedition-offline-actionable-menu-issuer.js";
+import { PostgresExpeditionOfflineBattleStart } from "../../src/platform/exploration/postgres-expedition-offline-battle-start.js";
+import { PostgresExpeditionQuotedEncounterProof } from "../../src/platform/exploration/postgres-expedition-quoted-encounter-proof.js";
+import { PostgresExpeditionReadOnlyMenuIssuer } from "../../src/platform/exploration/postgres-expedition-readonly-menu-issuer.js";
+import { PostgresExpeditionRepository } from "../../src/platform/exploration/postgres-expedition-repository.js";
+import { PostgresExpeditionResourceConfirmationRecovery } from "../../src/platform/exploration/postgres-expedition-resource-confirmation-recovery.js";
+import { PostgresExpeditionSearchSentProof } from "../../src/platform/exploration/postgres-expedition-search-sent-proof.js";
+import { PostgresExpeditionTrailConfirmationRecovery } from "../../src/platform/exploration/postgres-expedition-trail-confirmation-recovery.js";
+import { PostgresExpeditionTravelConfirmationRecovery } from "../../src/platform/exploration/postgres-expedition-travel-confirmation-recovery.js";
+import { PostgresExpeditionV4EventHistoryReader } from "../../src/platform/exploration/postgres-expedition-v4-event-history-reader.js";
+import {
+  PostgresExpeditionV4StagingResourceSearch,
+  PublishedResourceLootPolicy,
+} from "../../src/platform/exploration/postgres-expedition-v4-resources.js";
+import { PostgresExpeditionV4StagingSearch } from "../../src/platform/exploration/postgres-expedition-v4-search.js";
+import { PostgresExpeditionV4StatusReader } from "../../src/platform/exploration/postgres-expedition-v4-status-reader.js";
+import { PostgresExpeditionV4StagingTrailFollow } from "../../src/platform/exploration/postgres-expedition-v4-trail.js";
+import { PostgresMessagingRepository } from "../../src/platform/messaging/postgres-messaging-repository.js";
+import { PostgresPlayerOnboardingRepository } from "../../src/platform/player/postgres-player-onboarding-repository.js";
+import { AesBattleSeedReader } from "../../src/platform/rng/battle-seed-reader.js";
+import { AesEncounterSeedProvider } from "../../src/platform/rng/encrypted-seed-provider.js";
+import { worldRepositoryWithinTransaction } from "../../src/platform/world/postgres-world-repository.js";
+import { createCombatSceneRuntime } from "../../src/runtime/combat-scene-runtime.js";
 import {
   createCorrelationId,
   createEncounterId,
@@ -132,6 +133,12 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       "utf8",
     );
     await pool.query(sql);
+    await pool.query(
+      await readFile(
+        new URL("../../db/candidates/0081_combat_scene_gate.sql", import.meta.url),
+        "utf8",
+      ),
+    );
     await pool.query(`CREATE TABLE solo_search_effect_test (
       id UUID PRIMARY KEY,
       player_id UUID NOT NULL REFERENCES players(id),
@@ -761,6 +768,8 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
 
   it("follows a committed TRAIL with canonical EncounterService, 15 minutes, only one encounter and no phantom search", async () => {
     const playerId = await trainer();
+    // The expedition calendar is frozen, but SENT verifies the Encounter deadline against PostgreSQL.
+    const encounterClock = new SystemClock();
     const prepared = await prepare(playerId, "trail-follow-preparation");
     const search = new PostgresExpeditionV4StagingSearch(
       pool,
@@ -786,7 +795,7 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       store,
       createDirectEncounterEffect({
         seedProvider: new AesEncounterSeedProvider(Buffer.alloc(32, 0x5a), 1),
-        clock,
+        clock: encounterClock,
         feature: { enabled: true, reason: null },
       }),
     );
@@ -929,7 +938,7 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       new EncounterService(
         new PostgresEncounterRepository(pool),
         new AesEncounterSeedProvider(Buffer.alloc(32, 0x5a), 1),
-        clock,
+        encounterClock,
         { enabled: true, reason: null },
       ),
     ).engageAfterSent(proof);
@@ -2607,9 +2616,9 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
     expect(await reader.readLatestCompleted(otherPlayer)).toBeNull();
   });
 
-  it("blocks the fourth expédition and resets on the local Monday", async () => {
+  it("blocks the seventh expedition and resets on the local Monday", async () => {
     const playerId = await trainer();
-    for (let index = 0; index < 3; index += 1) {
+    for (let index = 0; index < 6; index += 1) {
       const initial = await prepare(playerId, "weekly-prepare-" + index);
       const advanced = await store.advance({
         playerId,
@@ -2635,7 +2644,7 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       await store.prepare({
         playerId,
         period: "DAY",
-        idempotencyKey: "weekly-fourth",
+        idempotencyKey: "weekly-seventh",
       }),
     ).toMatchObject({ ok: false, error: { code: "FLOW_BLOCKED" } });
     clock.advanceMs(6 * 24 * 60 * 60 * 1000 + 15 * 60 * 60 * 1000);
@@ -2646,6 +2655,110 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
         idempotencyKey: "weekly-next",
       }),
     ).toMatchObject({ ok: true, value: { expedition: { phase: "PREPARING" } } });
+  });
+
+  it("serializes the sixth slot, preserves historical rows and replays after restart", async () => {
+    const playerId = await trainer();
+    const week = "2026-10-26";
+    const reader = new PostgresExpeditionV4StatusReader(pool);
+    const historicalIds: string[] = [];
+    for (let index = 0; index < 5; index += 1) {
+      const expedition = await prepare(playerId, "sixth-history-" + index);
+      historicalIds.push(expedition.expeditionId);
+      expect(
+        await store.advance({
+          playerId,
+          expeditionId: expedition.expeditionId,
+          expectedRevision: 0n,
+          minutes: 720,
+          idempotencyKey: "sixth-complete-" + index,
+        }),
+      ).toMatchObject({ ok: true, value: { expedition: { phase: "ENDED" } } });
+    }
+    const historyBefore = await pool.query(
+      "SELECT * FROM solo_expeditions WHERE id=ANY($1::uuid[]) ORDER BY id",
+      [historicalIds],
+    );
+    expect(await reader.read(playerId, week)).toMatchObject({ usedThisWeek: 5 });
+    const preparations = await Promise.all(
+      ["a", "b"].map((key) =>
+        store.prepare({
+          playerId,
+          period: "NIGHT",
+          idempotencyKey: "sixth-race-prepare-" + key,
+        }),
+      ),
+    );
+    expect(preparations.filter((result) => result.ok)).toHaveLength(1);
+    expect(preparations.filter((result) => !result.ok)).toHaveLength(1);
+    const preparation = preparations.find((result) => result.ok);
+    if (!preparation?.ok) throw new Error("Expected one sixth preparation");
+    const expeditionId = preparation.value.expedition.expeditionId;
+    expect(await reader.read(playerId, week)).toMatchObject({ usedThisWeek: 5 });
+    const effectId = randomUUID();
+    const input = {
+      playerId,
+      expeditionId,
+      expectedRevision: 0n,
+      idempotencyKey: "sixth-first-search",
+      effect: async (client: import("pg").PoolClient) => {
+        await client.query(
+          "INSERT INTO solo_search_effect_test(id,player_id,expedition_id) VALUES($1,$2,$3)",
+          [effectId, playerId, expeditionId],
+        );
+        return ok({ effectRef: effectId });
+      },
+    };
+    const results = await Promise.all(
+      Array.from({ length: 4 }, () => store.executeSearchFree(input)),
+    );
+    expect(results.filter((result) => result.ok && !result.value.replayed)).toHaveLength(1);
+    expect(results.filter((result) => result.ok && result.value.replayed)).toHaveLength(3);
+    const restarted = new PostgresExpeditionRepository(pool, clock, "America/Maceio");
+    expect(
+      await restarted.executeSearchFree({
+        ...input,
+        effect: async () => {
+          throw new Error("Replay must not run the effect");
+        },
+      }),
+    ).toMatchObject({ ok: true, value: { replayed: true, expedition: { elapsedMinutes: 30 } } });
+    expect(await reader.read(playerId, week)).toMatchObject({ usedThisWeek: 6 });
+    expect(
+      await restarted.end({
+        playerId,
+        expeditionId,
+        expectedRevision: 1n,
+        reason: "VOLUNTARY",
+        idempotencyKey: "sixth-end",
+      }),
+    ).toMatchObject({ ok: true });
+    expect(
+      await restarted.prepare({
+        playerId,
+        period: "DAY",
+        idempotencyKey: "sixth-reject-seventh",
+      }),
+    ).toMatchObject({
+      ok: false,
+      error: {
+        code: "FLOW_BLOCKED",
+        details: { userMessage: "Você já utilizou suas 6 expedições desta semana." },
+      },
+    });
+    const historyAfter = await pool.query(
+      "SELECT * FROM solo_expeditions WHERE id=ANY($1::uuid[]) ORDER BY id",
+      [historicalIds],
+    );
+    expect(historyAfter.rows).toEqual(historyBefore.rows);
+    expect(
+      (
+        await pool.query(
+          "SELECT count(*)::int AS n FROM solo_search_effect_test WHERE player_id=$1",
+          [playerId],
+        )
+      ).rows,
+    ).toEqual([{ n: 1 }]);
   });
 
   it("continues across weekly reset without consuming an additional slot", async () => {
@@ -4391,7 +4504,7 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       value: { replayed: false, ballItemIds: { "2": publishedBallItemId } },
     });
     if (!issuedActionable.ok) throw new Error("Verified offline issuer refused canonical Ball");
-    expect(issuedActionable.value.text).toContain("2. ◉ Poké Ball ● \`×1\`");
+    expect(issuedActionable.value.text).toContain("2. ◉ Poké Ball ● `×1`");
     expect(issuedActionable.value.text).toContain("◇ *𝗖𝗔𝗣𝗧𝗨𝗥𝗔𝗥*");
     expect(issuedActionable.value.text).toContain("Nv.");
     expect(issuedActionable.value.text).not.toContain("1. ⚔️ Batalhar");
@@ -4546,7 +4659,78 @@ describe.sequential("solo expedition PostgreSQL draft persistence", () => {
       correlationId: firstClaim.value.correlationId,
       causationId: firstClaim.value.inboxMessageId,
     };
-    const first = await gateway.resolve(claimedContext);
+    const scenes = createCombatSceneRuntime(
+      pool,
+      {
+        players,
+        admins: { resolvePrincipal: async () => null },
+        // This is a standalone encounter: neither port may participate in capture.
+        controllers: {
+          listByBattle: async () => {
+            throw new Error("No battle in standalone numeric capture");
+          },
+          transition: async () => {
+            throw new Error("No controller transition");
+          },
+        },
+        presentation: {
+          moveDisplayNames: async () => new Map(),
+          speciesDisplayName: async () => {
+            throw new Error("Capture preserves the V4 renderer");
+          },
+        },
+      },
+      [],
+      (input) => gateway.resolve(input, true),
+    );
+    const stagedGateway = new ExpeditionCanonicalChoiceStagingResolver(
+      players,
+      quotedEncounter,
+      activeEncounters,
+      issuedMenuProof,
+      capture,
+      {
+        startCanonical: async () => {
+          throw new Error("Capture must not start PvE");
+        },
+      } as never,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      scenes.gate,
+    );
+    expect(await stagedGateway.resolve(claimedContext)).toMatchObject({
+      ok: true,
+      value: { outgoing: [{ payload: { text: expect.stringContaining("𝗖𝗘𝗡𝗔 𝗣𝗘𝗡𝗗𝗘𝗡𝗧𝗘") } }] },
+    });
+    expect(
+      (
+        await pool.query("SELECT count(*)::int AS n FROM capture_attempts WHERE encounter_id=$1", [
+          encounterId,
+        ])
+      ).rows[0].n,
+    ).toBe(0);
+    expect(
+      (
+        await pool.query(
+          "SELECT quantity::text AS n FROM inventory_balances WHERE player_id=$1 AND item_id=$2",
+          [playerId, publishedBallItemId],
+        )
+      ).rows[0].n,
+    ).toBe("1");
+    const sceneId = randomUUID();
+    const first = await scenes.gate.receive({
+      ...claimedContext,
+      idempotencyKey: "inbox:baileys:" + sceneId,
+      message: {
+        ...claimedContext.message,
+        externalMessageId: sceneId,
+        text: "/cena " + Array.from({ length: 50 }, () => "árvore").join(" "),
+        replyToExternalMessageId: null,
+      },
+    });
     expect(first).toMatchObject({
       ok: true,
       value: { resultRefType: "ENCOUNTER" },

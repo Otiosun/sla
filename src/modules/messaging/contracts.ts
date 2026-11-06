@@ -21,6 +21,7 @@ export const IncomingMessageSchema = z
     occurredAt: z.string().datetime({ offset: true }),
     text: z.string().max(32_768).nullable().default(null),
     mentions: z.array(boundedRef).max(64).optional(),
+    forwarded: z.boolean().optional(),
     mediaRefs: z.array(MediaReferenceSchema).max(16).default([]),
     replyToExternalMessageId: boundedRef.nullable().default(null),
   })
@@ -56,6 +57,18 @@ export const MediaProcessingRequestSchema = z
 export type MediaProcessingRequest = z.infer<typeof MediaProcessingRequestSchema>;
 
 export interface MessageHandlerContext {
+  readonly expeditionNavigationAuthorization?: {
+    readonly expeditionId: string | null;
+    readonly revision: string | null;
+    readonly areaId: string;
+    readonly weekKey: string;
+  };
+  /** Trusted server-side gate binding; never accepted from IncomingMessageSchema. */
+  readonly combatSceneAuthorization?: {
+    readonly subjectKind: "BATTLE" | "ENCOUNTER";
+    readonly subjectId: string;
+    readonly version: number;
+  };
   readonly inboxMessageId: string;
   readonly correlationId: string;
   readonly causationId: string;

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Client, type Pool } from "pg";
+import { Pool } from "pg";
 import { describe, expect, it, vi } from "vitest";
 import { ADMIN_ROLE_CAPABILITIES } from "../../src/modules/admin/registry-catalog.js";
 import { createUatBootstrapRoutes } from "../../src/modules/admin/uat-bootstrap.js";
@@ -7,35 +7,29 @@ import { RuntimeCommandPolicyGate } from "../../src/modules/community/runtime-co
 import type { IncomingMessage } from "../../src/modules/messaging/contracts.js";
 import { MessageRouter } from "../../src/modules/messaging/router.js";
 import { MessagingService, OutboxWorker } from "../../src/modules/messaging/service.js";
+import { runMigrations } from "../../src/platform/db/migrations.js";
 import { PostgresMessagingRepository } from "../../src/platform/messaging/postgres-messaging-repository.js";
 
-// Opt-in PostgreSQL proof. All writes target connection-local TEMP tables copied
-// from the installed schema. READ ONLY is enforced after creating those tables.
-const enabled = process.env.UAT_POSTGRES_PROOF === "1";
+// Same disposable-cluster opt-in as the integrated regression. Never connects
+// to an installed runtime role or copies tables from a live schema.
+const maintenance = process.env.POSTGRES_INTEGRATION_TEST_URL;
+const enabled = maintenance !== undefined && process.env.ALLOW_DISPOSABLE_POSTGRES_TESTS === "1";
 describe.skipIf(!enabled)("UAT completion with the actual PostgreSQL schema", () => {
   it("persists OWNER success and non-admin error, sends both, and preserves replay semantics", async () => {
-    const client = new Client({
-      host: "127.0.0.1",
-      port: Number(process.env.UAT_PROOF_PORT),
-      database: "postgres",
-      user: "pokemon_runtime",
-    });
-    await client.connect();
+    const coordinates = new URL(maintenance!);
+    if (
+      coordinates.pathname !== "/postgres" ||
+      !["127.0.0.1", "localhost"].includes(coordinates.hostname)
+    )
+      throw new Error("Owned loopback PostgreSQL maintenance database required");
+    const admin = new Pool({ connectionString: coordinates.toString(), max: 1 });
+    const database = "uat_completion_" + randomUUID().replaceAll("-", "");
+    await admin.query(`CREATE DATABASE "${database}"`);
+    coordinates.pathname = "/" + database;
+    const pool = new Pool({ connectionString: coordinates.toString(), max: 4 });
+    const client = pool;
     try {
-      for (const table of [
-        "inbox_messages",
-        "outbox_messages",
-        "messaging_rate_limit_charges",
-        "messaging_rate_limit_buckets",
-        "player_identities",
-      ]) {
-        await client.query(`CREATE TEMP TABLE ${table} (LIKE public.${table} INCLUDING ALL)`);
-      }
-      await client.query("SET default_transaction_read_only=on");
-      const pool = {
-        query: client.query.bind(client),
-        connect: async () => ({ query: client.query.bind(client), release() {} }),
-      } as unknown as Pool;
+      await runMigrations(pool, { appliedBy: "disposable-uat-completion-proof" });
       const repository = new PostgresMessagingRepository(pool);
       const forbidden = vi.fn(async (): Promise<never> => {
         throw new Error("Help must not mutate gameplay");
@@ -137,6 +131,8 @@ describe.skipIf(!enabled)("UAT completion with the actual PostgreSQL schema", ()
       ).toBe(0);
     } finally {
       await client.end();
+      await admin.query(`DROP DATABASE "${database}"`);
+      await admin.end();
     }
   }, 30000);
 });

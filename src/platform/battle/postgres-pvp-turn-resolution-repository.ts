@@ -18,6 +18,8 @@ import {
   type RulesetSnapshot,
 } from "../../modules/catalog/contracts.js";
 import { withTransaction } from "../db/transaction.js";
+import { settleExpeditionBattle } from "../exploration/expedition-blackout.js";
+import { pvpGroupTurnDuration } from "../pvp/postgres-pvp-group-timing.js";
 import { loadParticipantControllersInTransaction } from "./postgres-battle-participant-controller-repository.js";
 import { persistPlayerBattleState } from "./postgres-battle-player-state-writeback.js";
 import {
@@ -72,7 +74,12 @@ function parseRoot(row: RootRow): BattleRootRecord {
 }
 
 export class PostgresPvpTurnResolutionTransaction implements PvpTurnResolutionTransaction {
-  public constructor(private readonly client: PoolClient) {}
+  public constructor(
+    private readonly client: PoolClient,
+    private readonly groupTimingEnabled = false,
+    private readonly expeditionSettlementEnabled = false,
+    private readonly operationalExpeditionPlayers?: ReadonlySet<string>,
+  ) {}
 
   public async loadParticipantControllers(battleId: string) {
     return loadParticipantControllersInTransaction(this.client, battleId);
@@ -342,7 +349,15 @@ export class PostgresPvpTurnResolutionTransaction implements PvpTurnResolutionTr
     if (!terminal && window.requiredControllers !== undefined) {
       if (window.committedAt === null) throw new Error("Committed window has no commit timestamp");
       const openedAt = new Date(window.committedAt);
-      const duration = Date.parse(window.deadlineAt) - Date.parse(window.openedAt);
+      let duration = Date.parse(window.deadlineAt) - Date.parse(window.openedAt);
+      if (this.groupTimingEnabled && input.nextState.battleType === "PVP") {
+        const challenge = await this.client.query<{ id: string }>(
+          "SELECT id FROM pvp_challenges WHERE battle_id=$1",
+          [input.battleId],
+        );
+        if (challenge.rows[0])
+          duration = await pvpGroupTurnDuration(this.client, challenge.rows[0].id, duration);
+      }
       const next = await openControllerTurnWindowInTransaction(this.client, {
         id: randomUUID(),
         battleId: input.battleId,
@@ -353,19 +368,47 @@ export class PostgresPvpTurnResolutionTransaction implements PvpTurnResolutionTr
       });
       if (!next.ok) throw new Error(`Next controller turn window failed: ${next.error.message}`);
     }
+    if (this.expeditionSettlementEnabled && input.nextState.battleType === "WILD") {
+      if (input.nextState.status === "WON" || input.nextState.status === "DRAW") {
+        for (const playerId of [
+          ...new Set(input.nextState.sides.flatMap((side) => side.playerId ?? [])),
+        ].sort()) {
+          await settleExpeditionBattle(
+            this.client,
+            playerId,
+            input.battleId,
+            false,
+            this.operationalExpeditionPlayers,
+          );
+        }
+      }
+    }
     return { kind: "PERSISTED", state: input.nextState };
   }
 }
 
 export class PostgresPvpTurnResolutionRepository implements PvpTurnResolutionRepository {
-  public constructor(private readonly pool: Pool) {}
+  public constructor(
+    private readonly pool: Pool,
+    private readonly groupTimingEnabled = false,
+    private readonly expeditionSettlementEnabled = false,
+    private readonly operationalExpeditionPlayers?: ReadonlySet<string>,
+  ) {}
 
   public async transaction<T>(
     work: (transaction: PvpTurnResolutionTransaction) => Promise<T>,
   ): Promise<T> {
     return withTransaction(
       this.pool,
-      async (client) => work(new PostgresPvpTurnResolutionTransaction(client)),
+      async (client) =>
+        work(
+          new PostgresPvpTurnResolutionTransaction(
+            client,
+            this.groupTimingEnabled,
+            this.expeditionSettlementEnabled,
+            this.operationalExpeditionPlayers,
+          ),
+        ),
       { isolationLevel: "READ COMMITTED" },
     );
   }

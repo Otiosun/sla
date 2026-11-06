@@ -39,6 +39,23 @@ function contextWithText(text: string, mentions: readonly string[]): MessageHand
 }
 
 describe("PVE /spawn WhatsApp route", () => {
+  it.each(["/spawn auto Poochyena @target", "/spawn Poochyena @target ataque Bite"])(
+    "blocks unbound opening effects in Scene mode: %s",
+    async (text) => {
+      const resolvePlayer = vi.fn();
+      const createOrReplay = vi.fn();
+      const route = createSpawnWhatsAppRoute({
+        players: { resolvePlayer },
+        encounters: { createOrReplay },
+        combatScenesRequired: true,
+      } as never);
+      expect(
+        await route.handler.handle(contextWithText(text, ["target@s.whatsapp.net"])),
+      ).toMatchObject({ ok: false });
+      expect(resolvePlayer).not.toHaveBeenCalled();
+      expect(createOrReplay).not.toHaveBeenCalled();
+    },
+  );
   it("requires exactly one provider mention before resolving a player or consuming RNG", async () => {
     const resolvePlayer = vi.fn();
     const createOrReplay = vi.fn();

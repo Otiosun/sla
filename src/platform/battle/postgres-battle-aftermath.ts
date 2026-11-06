@@ -3,7 +3,10 @@ import { type BattleState, BattleStateSchema } from "../../modules/battle/contra
 import type { BattleAftermathPort, BattleAftermathResult } from "../../modules/battle/runtime.js";
 import { RulesetConfigSchema } from "../../modules/catalog/contracts.js";
 import { WorldAreaConfigSchema } from "../../modules/catalog/world-contracts.js";
+import { parsePlayerId } from "../../shared-kernel/ids.js";
 import { withTransaction } from "../db/transaction.js";
+import { settleExpeditionBattle } from "../exploration/expedition-blackout.js";
+import { worldRepositoryWithinTransaction } from "../world/postgres-world-repository.js";
 
 interface PlayerLocationRow {
   readonly area_id: string;
@@ -19,6 +22,7 @@ async function relocatePlayer(
   client: PoolClient,
   playerId: string,
   contentReleaseId: string,
+  expeditionBattleId?: string,
 ): Promise<boolean> {
   const location = await client.query<PlayerLocationRow>(
     `SELECT location.area_id, area.region_id
@@ -33,6 +37,58 @@ async function relocatePlayer(
     throw new Error("Defeated player has no persisted world location");
   }
 
+  if (expeditionBattleId !== undefined) {
+    const id = parsePlayerId(playerId);
+    if (!id.ok) throw new Error("Invalid blackout player");
+    const published = await client.query(
+      `SELECT 1 FROM content_releases release JOIN region_revisions region ON region.content_release_id=release.id
+       WHERE release.id=$1 AND release.status='PUBLISHED' AND region.region_id=$2 AND region.active FOR SHARE`,
+      [contentReleaseId, current.region_id],
+    );
+    const destination =
+      published.rowCount === 1
+        ? await worldRepositoryWithinTransaction(client).transaction(async (world) => {
+            const areas = new Map(
+              (await world.areasInRegion(contentReleaseId, current.region_id))
+                .filter((area) => area.active)
+                .map((area) => [area.areaId, area]),
+            );
+            if (!areas.has(current.area_id)) return undefined;
+            const unlocks = new Set(await world.activeUnlockKeys(id.value));
+            const visited = new Set([current.area_id]);
+            let frontier = [current.area_id];
+            while (frontier.length > 0) {
+              const safe = frontier.sort().find((areaId) => areas.get(areaId)?.config.safePoint);
+              if (safe) return safe;
+              const next: string[] = [];
+              for (const areaId of frontier) {
+                for (const edge of await world.connectionsFrom(contentReleaseId, areaId)) {
+                  if (
+                    !edge.active ||
+                    !areas.has(edge.toAreaId) ||
+                    visited.has(edge.toAreaId) ||
+                    !edge.accessRule.requiredUnlockKeys.every((key) => unlocks.has(key))
+                  )
+                    continue;
+                  visited.add(edge.toAreaId);
+                  next.push(edge.toAreaId);
+                }
+              }
+              frontier = next;
+            }
+            return undefined;
+          })
+        : undefined;
+    if (destination === undefined) {
+      await client.query(
+        `UPDATE solo_expedition_receipts SET result=result || '{"blackoutNeedsStaff":true}'::jsonb
+         WHERE player_id=$1 AND idempotency_key=$2`,
+        [playerId, "battle-blackout:" + expeditionBattleId],
+      );
+      return false;
+    }
+    return movePlayer(client, playerId, current.area_id, destination);
+  }
   const candidates = await client.query<SafePointRow>(
     `SELECT area.id AS area_id, revision.data
      FROM areas area
@@ -64,7 +120,16 @@ async function relocatePlayer(
   if (destination === undefined) {
     throw new Error("Defeat policy requires relocation but no active safe point exists in region");
   }
-  if (destination.areaId === current.area_id) return false;
+  return movePlayer(client, playerId, current.area_id, destination.areaId);
+}
+
+async function movePlayer(
+  client: PoolClient,
+  playerId: string,
+  currentArea: string,
+  destination: string,
+): Promise<boolean> {
+  if (destination === currentArea) return false;
 
   const moved = await client.query(
     `UPDATE player_locations
@@ -72,7 +137,7 @@ async function relocatePlayer(
          entered_at = now(),
          revision = revision + 1
      WHERE player_id = $1`,
-    [playerId, destination.areaId],
+    [playerId, destination],
   );
   if (moved.rowCount !== 1) {
     throw new Error("Defeat relocation lost the locked player location row");
@@ -81,22 +146,35 @@ async function relocatePlayer(
 }
 
 export class PostgresBattleAftermath implements BattleAftermathPort {
-  public constructor(private readonly pool: Pool) {}
+  public constructor(
+    private readonly pool: Pool,
+    private readonly expeditionBlackoutEnabled = false,
+    private readonly operationalExpeditionPlayers?: ReadonlySet<string>,
+    private readonly permitsBattle?: (battleId: string) => Promise<boolean>,
+  ) {}
 
   public async runOnce(limit: number): Promise<readonly { battleId: string; error?: unknown }[]> {
     if (!Number.isSafeInteger(limit) || limit < 1) {
       throw new Error("Battle aftermath batch limit must be a positive safe integer");
     }
-    const pending = await this.pool.query<{ battle_id: string; state: unknown }>(
-      `SELECT task.battle_id, snapshot.state
+    const pending: { battle_id: string; state: unknown }[] = [];
+    for (let offset = 0; pending.length < limit; offset += limit) {
+      const batch = await this.pool.query<{ battle_id: string; state: unknown }>(
+        `SELECT task.battle_id, snapshot.state
        FROM battle_defeat_aftermath task
        JOIN battle_state_snapshots snapshot
          ON snapshot.battle_id = task.battle_id AND snapshot.version = task.battle_version
-       WHERE task.completed_at IS NULL ORDER BY task.created_at, task.battle_id LIMIT $1`,
-      [limit],
-    );
+       WHERE task.completed_at IS NULL ORDER BY task.created_at, task.battle_id LIMIT $1 OFFSET $2`,
+        [limit, offset],
+      );
+      for (const row of batch.rows) {
+        if (!this.permitsBattle || (await this.permitsBattle(row.battle_id))) pending.push(row);
+        if (pending.length === limit) break;
+      }
+      if (!this.permitsBattle || batch.rows.length < limit) break;
+    }
     const outcomes: { battleId: string; error?: unknown }[] = [];
-    for (const row of pending.rows) {
+    for (const row of pending) {
       try {
         await this.applyDefeat(BattleStateSchema.parse(row.state));
         outcomes.push({ battleId: row.battle_id });
@@ -108,6 +186,8 @@ export class PostgresBattleAftermath implements BattleAftermathPort {
   }
 
   public async applyDefeat(state: BattleState): Promise<BattleAftermathResult> {
+    if (this.permitsBattle && !(await this.permitsBattle(state.battleId)))
+      return { relocatedPlayerIds: [] };
     if (state.status !== "LOST") return { relocatedPlayerIds: [] };
 
     return withTransaction(
@@ -162,7 +242,24 @@ export class PostgresBattleAftermath implements BattleAftermathPort {
             : owners.rows.map((row) => row.player_id);
         const relocated: string[] = [];
         for (const playerId of [...new Set(playerIds)].sort()) {
-          if (await relocatePlayer(client, playerId, state.contentReleaseId)) {
+          let blackout = false;
+          if (this.expeditionBlackoutEnabled) {
+            blackout = await settleExpeditionBattle(
+              client,
+              playerId,
+              state.battleId,
+              true,
+              this.operationalExpeditionPlayers,
+            );
+          }
+          if (
+            await relocatePlayer(
+              client,
+              playerId,
+              state.contentReleaseId,
+              blackout ? state.battleId : undefined,
+            )
+          ) {
             relocated.push(playerId);
           }
         }

@@ -9,6 +9,8 @@ import type {
 import type { MessageRouteHandler, MessageRouterPort } from "./ports.js";
 
 export interface CommandRouteDefinition {
+  /** Non-mechanical marker that may accompany a single embedded command. */
+  readonly commandAnnotation?: boolean;
   readonly command: string;
   readonly aliases?: readonly string[];
   readonly handler: MessageRouteHandler;
@@ -38,6 +40,7 @@ export interface MessageRouteScopeGate {
 }
 
 interface RegisteredRoute {
+  readonly commandAnnotation: boolean;
   readonly canonicalCommand: string;
   readonly handler: MessageRouteHandler;
   readonly rateLimitClass: "STANDARD" | "SENSITIVE";
@@ -132,6 +135,10 @@ export class MessageRouter implements MessageRouterPort {
     private readonly policyGate?: CommandRoutePolicyGate,
     private readonly conversationResolver?: MessageConversationResolver,
     private readonly scopeGate?: MessageRouteScopeGate,
+    private readonly dispatchScope?: (
+      context: MessageHandlerContext,
+      run: () => Promise<Result<MessageHandlerResult | null>>,
+    ) => Promise<Result<MessageHandlerResult | null>>,
   ) {
     for (const definition of definitions) {
       this.register(definition);
@@ -157,6 +164,7 @@ export class MessageRouter implements MessageRouterPort {
     }
 
     const route: RegisteredRoute = {
+      commandAnnotation: definition.commandAnnotation === true,
       canonicalCommand,
       handler: definition.handler,
       rateLimitClass: definition.rateLimitClass ?? "STANDARD",
@@ -175,7 +183,17 @@ export class MessageRouter implements MessageRouterPort {
     if (leading !== null) {
       const additionalMechanicalCommands = embeddedCommandCandidates(text)
         .map((candidate) => ({ candidate, route: this.routes.get(candidate.command) }))
-        .filter((value) => value.route?.allowEmbedded === true);
+        .filter((value) => value.route?.allowEmbedded === true && !value.route.commandAnnotation);
+      if (
+        this.routes.get(leading.command)?.commandAnnotation &&
+        additionalMechanicalCommands.length === 1
+      ) {
+        return {
+          candidate: additionalMechanicalCommands[0]!.candidate,
+          route: additionalMechanicalCommands[0]!.route,
+          ambiguous: false,
+        };
+      }
       return {
         candidate: leading,
         route: this.routes.get(leading.command),
@@ -194,13 +212,15 @@ export class MessageRouter implements MessageRouterPort {
         } => value.route?.allowEmbedded === true,
       );
 
-    const firstEmbedded = embedded[0];
+    const mechanical = embedded.filter((entry) => !entry.route.commandAnnotation);
+    const selected = mechanical.length > 0 ? mechanical : embedded;
+    const firstEmbedded = selected[0];
     if (firstEmbedded === undefined) return null;
 
     return {
       candidate: firstEmbedded.candidate,
       route: firstEmbedded.route,
-      ambiguous: embedded.length > 1,
+      ambiguous: selected.length > 1,
     };
   }
 
@@ -224,6 +244,14 @@ export class MessageRouter implements MessageRouterPort {
   }
 
   async dispatch(context: MessageHandlerContext): Promise<Result<MessageHandlerResult | null>> {
+    return this.dispatchScope
+      ? this.dispatchScope(context, () => this.dispatchScoped(context))
+      : this.dispatchScoped(context);
+  }
+
+  private async dispatchScoped(
+    context: MessageHandlerContext,
+  ): Promise<Result<MessageHandlerResult | null>> {
     const match = this.matchCommand(context.message.text);
     if (match === null) {
       return this.conversationResolver?.resolve(context) ?? ok(null);

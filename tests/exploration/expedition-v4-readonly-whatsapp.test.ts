@@ -1,5 +1,15 @@
 import { createHash, randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { ExpeditionSnapshot } from "../../src/modules/exploration/expedition-state.js";
+import {
+  createExpeditionV4ReadOnlyRoutes,
+  createExpeditionV4StagingPreparationRoutes,
+  createExpeditionV4StagingSearchRoutes,
+  type ExpeditionV4ReadOnlyDeps,
+} from "../../src/modules/exploration/expedition-v4-readonly-whatsapp.js";
+import type { MessageHandlerContext } from "../../src/modules/messaging/contracts.js";
+import { MessageRouter } from "../../src/modules/messaging/router.js";
+import type { WorldLocationView } from "../../src/modules/world/contracts.js";
 import { ManualClock } from "../../src/platform/clock/index.js";
 import { PostgresExpeditionEndConfirmationRecovery } from "../../src/platform/exploration/postgres-expedition-end-confirmation-recovery.js";
 import type { PostgresExpeditionRepository } from "../../src/platform/exploration/postgres-expedition-repository.js";
@@ -7,16 +17,6 @@ import type {
   ExpeditionV4StagingSearchInput,
   ExpeditionV4StagingSearchResult,
 } from "../../src/platform/exploration/postgres-expedition-v4-search.js";
-import {
-  createExpeditionV4ReadOnlyRoutes,
-  createExpeditionV4StagingPreparationRoutes,
-  createExpeditionV4StagingSearchRoutes,
-  type ExpeditionV4ReadOnlyDeps,
-} from "../../src/modules/exploration/expedition-v4-readonly-whatsapp.js";
-import { MessageRouter } from "../../src/modules/messaging/router.js";
-import type { MessageHandlerContext } from "../../src/modules/messaging/contracts.js";
-import type { WorldLocationView } from "../../src/modules/world/contracts.js";
-import type { ExpeditionSnapshot } from "../../src/modules/exploration/expedition-state.js";
 import { createPlayerId } from "../../src/shared-kernel/ids.js";
 import { ok } from "../../src/shared-kernel/result.js";
 
@@ -106,7 +106,7 @@ describe("V4 exploration WhatsApp READ-ONLY staging admission and output", () =>
     const text = String(outgoing.payload.text);
     expect(text).toContain("Campos de Yun");
     expect(text).toContain("Preparação registrada");
-    expect(text).toContain("Cotas restantes:* 2/3");
+    expect(text).toContain("Cotas restantes:* 5/6");
     expect(text).toContain("Cota ainda não consumida");
     expect(text).toContain("Nenhuma ação, cota, item ou encontro foi alterado");
     expect(text).not.toContain("[Ler mais]");
@@ -153,19 +153,19 @@ describe("V4 exploration WhatsApp READ-ONLY staging admission and output", () =>
       usedThisWeek: 0,
     });
     expect((await f.route.handler.handle(context())).ok).toBe(false);
-    f.read.mockResolvedValueOnce({ expedition: null, usedThisWeek: 4 });
+    f.read.mockResolvedValueOnce({ expedition: null, usedThisWeek: 7 });
     expect((await f.route.handler.handle(context())).ok).toBe(false);
   });
 
   it("reports NONE without offering an unusable numeric menu", async () => {
     const f = setup();
-    f.read.mockResolvedValueOnce({ expedition: null, usedThisWeek: 3 });
+    f.read.mockResolvedValueOnce({ expedition: null, usedThisWeek: 6 });
     const result = await f.route.handler.handle(context("/explorar retomar"));
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const message = String(result.value.outgoing[0]?.payload.text);
     expect(message).toContain("Nenhuma expedição em andamento");
-    expect(message).toContain("Cotas restantes:* 0/3");
+    expect(message).toContain("Cotas restantes:* 0/6");
     expect(message).not.toContain("1. ☀️");
   });
 
@@ -672,7 +672,9 @@ describe("published search staging-only WhatsApp command", () => {
     if (!returned.ok) return;
     const panel = String(returned.value.outgoing[0]?.payload.text);
     expect(panel).toContain("1. 🔎 Buscar Pokémon");
-    expect(panel).toContain("/explorar buscar");
+    expect(returned.value.outgoing[0]?.payload.expeditionNavigation).toMatchObject({
+      commands: { "1": "/explorar buscar" },
+    });
     expect(panel).not.toContain("buscas, captura e viagem continuam desativadas");
     expect(prepare).toHaveBeenCalledOnce();
   });
@@ -686,8 +688,12 @@ describe("published search staging-only WhatsApp command", () => {
     const text = String(result.value.outgoing[0]?.payload.text);
     expect(text).toContain("✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗘𝗫𝗣𝗘𝗗𝗜ÇÃ𝗢*");
     expect(text).toContain("◇ *𝗔ÇÕ𝗘𝗦*");
-    expect(text).toContain("1. 🔎 Buscar Pokémon ● 30 min");
-    expect(text).toContain("/explorar periodo noite");
+    expect(text).toContain("1. 🔎 Buscar Pokémon ● `30 min`");
+    expect(text).toContain("4. 🔄 Alterar período");
+    expect(text).toContain("5. ↩️ Cancelar preparação");
+    expect(result.value.outgoing[0]?.payload.expeditionNavigation).toMatchObject({
+      commands: { "4": "/explorar alterar", "5": "/explorar cancelar" },
+    });
     expect(text).not.toContain("2. 🎒");
     expect(text).toContain("3. 🗺️ Consultar destinos");
     expect(text).not.toContain("[Ler mais]");
@@ -1180,11 +1186,20 @@ describe("published search staging-only WhatsApp command", () => {
     expect(f.execute).not.toHaveBeenCalled();
   });
 
+  it("delegates an explicit species slug to the transactional known-species search guard", async () => {
+    const f = stagingSearch();
+    const result = await f.route.handler.handle(context("/explorar buscar charmander"));
+    expect(result.ok).toBe(true);
+    expect(f.execute).toHaveBeenCalledWith(
+      expect.objectContaining({ targetSpeciesSlug: "charmander" }),
+    );
+  });
+
   it("does not allow search to run through an unnamespaced numeric or freeform request", async () => {
     const f = stagingSearch();
     for (const input of [
       "1",
-      "/explorar buscar charmander",
+      "/explorar buscar charmander extra",
       "/explorar capturar",
       "/explorar buscar;ganhar",
     ]) {

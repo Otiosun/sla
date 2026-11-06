@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import { RulesetConfigSchema } from "../../modules/catalog/contracts.js";
+import { expeditionOperationAllowed } from "../../modules/exploration/expedition-runtime-audience.js";
 import { calculatePokemonStats } from "../../modules/pokemon/stats.js";
 import {
   type HealPokemonCenterTeamInput,
@@ -9,7 +10,9 @@ import {
   type PokemonCenterHealingPersistenceResult,
   type PokemonCenterHealingRepository,
 } from "../../modules/world-services/healing-service.js";
+import type { Clock } from "../clock/index.js";
 import { withTransaction } from "../db/transaction.js";
+import { chargeExpeditionCenter } from "../exploration/expedition-center-clock.js";
 
 interface HealingClaimRow {
   readonly player_id: string;
@@ -134,7 +137,10 @@ async function teamMoves(
 }
 
 export class PostgresPokemonCenterHealingRepository implements PokemonCenterHealingRepository {
-  public constructor(private readonly pool: Pool) {}
+  public constructor(
+    private readonly pool: Pool,
+    private readonly expedition?: { readonly clock: Clock; readonly timeZone: string },
+  ) {}
 
   public async healTeam(
     input: HealPokemonCenterTeamInput,
@@ -256,6 +262,17 @@ export class PostgresPokemonCenterHealingRepository implements PokemonCenterHeal
 
         const pokemonIds = team.map((pokemon) => pokemon.pokemon_instance_id);
         const moves = await teamMoves(client, pokemonIds, content.contentReleaseId);
+        if (parsedRuleset.data.battle.ppEnabled && moves.some((move) => move.max_pp === null)) {
+          return { kind: "INVALID_STATE", reason: "A team move is missing published maximum PP" };
+        }
+        if (this.expedition !== undefined && expeditionOperationAllowed(input.playerId)) {
+          const charged = await chargeExpeditionCenter(client, {
+            playerId: input.playerId,
+            inboxId: input.sourceInboxMessageId,
+            ...this.expedition,
+          });
+          if (!charged.ok) return { kind: "INVALID_STATE", reason: charged.error.message };
+        }
         const ppRestoredByPokemon = new Map<string, number>();
         let ppRestoredSlots = 0;
         if (parsedRuleset.data.battle.ppEnabled) {

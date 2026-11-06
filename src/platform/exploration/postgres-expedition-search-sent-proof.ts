@@ -71,6 +71,7 @@ export class PostgresExpeditionSearchSentProof {
           AND encounter.player_id=outcome.player_id
           AND encounter.area_id=expedition.area_id
           AND encounter.status IN ('CREATED','PRESENTED','ENGAGED')
+          AND (encounter.expires_at IS NULL OR encounter.expires_at>clock_timestamp())
          JOIN content_release_pointers pointer
            ON pointer.pointer_key='ACTIVE'
          JOIN content_releases release

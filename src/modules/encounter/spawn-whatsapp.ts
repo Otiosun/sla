@@ -105,6 +105,8 @@ export interface NarratorOpeningBattlePort {
 }
 
 export interface SpawnWhatsAppDependencies {
+  /** Interactively Cenado candidate: unapproved AUTO/opening fast paths stay disabled. */
+  readonly combatScenesRequired?: boolean;
   readonly players: Pick<PlayerRegistrationService, "resolvePlayer">;
   readonly encounters: Pick<EncounterService, "createOrReplay"> &
     Partial<Pick<EncounterService, "observe" | "flee">>;
@@ -310,6 +312,21 @@ export function createSpawnWhatsAppRoute(
         );
       }
 
+      if (
+        dependencies.combatScenesRequired === true &&
+        (parsed.value.automatic || parsed.value.openingMoveReference !== null)
+      ) {
+        return err(
+          appError(
+            "FEATURE_UNAVAILABLE",
+            "Fast paths require a durable Cena binding before any action.",
+            {
+              userMessage:
+                "Neste modo, use /spawn normal e conduza o selvagem com Cena e /movimento. Abertura rápida e batalha automática permanecem desativadas.",
+            },
+          ),
+        );
+      }
       if (
         parsed.value.openingMoveReference !== null &&
         (dependencies.moveDisplayNames === undefined || dependencies.narratorOpening === undefined)

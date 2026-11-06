@@ -1,12 +1,13 @@
 import { createHash } from "node:crypto";
 import type { Pool } from "pg";
-import { createIdempotencyKey, parseIdempotencyScope } from "../../shared-kernel/idempotency.js";
-import type { PlayerId } from "../../shared-kernel/ids.js";
-import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
+import { expeditionOperationAllowed } from "../../modules/exploration/expedition-runtime-audience.js";
 import {
   incomingMessageFingerprint,
   type MessageHandlerContext,
 } from "../../modules/messaging/contracts.js";
+import { createIdempotencyKey, parseIdempotencyScope } from "../../shared-kernel/idempotency.js";
+import type { PlayerId } from "../../shared-kernel/ids.js";
+import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 
 interface TravelRecoveryRow {
   readonly expedition_id: string;
@@ -35,24 +36,19 @@ export class PostgresExpeditionTravelConfirmationRecovery {
     readonly playerId: PlayerId;
     readonly context: MessageHandlerContext;
   }): Promise<
-    Result<
-      | {
-          readonly destinationDisplayName: string;
-          readonly travelMinutes: number;
-          readonly elapsedMinutes: number;
-          readonly phase: "ACTIVE" | "ENDED";
-        }
-      | null
-    >
+    Result<{
+      readonly destinationDisplayName: string;
+      readonly travelMinutes: number;
+      readonly elapsedMinutes: number;
+      readonly phase: "ACTIVE" | "ENDED";
+    } | null>
   > {
     const message = input.context.message;
     const path = /^\/explorar\s+viajar\s+(vila-dos-arrozais|campos-de-yun)$/iu.exec(
       message.text?.trim() ?? "",
     );
     if (
-      process.env.APP_ENV !== "test" ||
-      process.env.NODE_ENV !== "test" ||
-      process.env.WHATSAPP_ENABLED !== "false" ||
+      !expeditionOperationAllowed(input.playerId) ||
       message.provider !== "baileys" ||
       path === null
     ) {

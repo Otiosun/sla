@@ -15,6 +15,7 @@ import { initializeParticipantControllerInTransaction } from "../battle/postgres
 import { openControllerTurnWindowInTransaction } from "../battle/postgres-battle-turn-window-repository.js";
 import { loadPlayerBattleParty } from "../battle/postgres-player-party-reader.js";
 import { withTransaction } from "../db/transaction.js";
+import { pvpGroupTurnDuration } from "./postgres-pvp-group-timing.js";
 
 const uuid = z.string().uuid();
 
@@ -281,6 +282,7 @@ export class PostgresPvpStartRepository implements PvpStartRepository {
   public constructor(
     private readonly pool: Pool,
     private readonly seedProvider: EncounterSeedProvider,
+    private readonly groupTimingEnabled = false,
   ) {}
 
   public async start(input: PvpStartRepositoryInput): Promise<Result<PvpStartRepositoryOutput>> {
@@ -388,8 +390,8 @@ export class PostgresPvpStartRepository implements PvpStartRepository {
         );
       }
 
-      const seed = this.seedProvider.create(`pvp:challenge:${challenge.id}:battle`);
       const battleId = randomUUID();
+      const seed = this.seedProvider.create(`battle:${battleId}`);
       const root: BattleRootRecord = {
         battleId,
         battleType: "PVP",
@@ -479,13 +481,20 @@ export class PostgresPvpStartRepository implements PvpStartRepository {
         });
       }
 
+      const duration = this.groupTimingEnabled
+        ? await pvpGroupTurnDuration(
+            client,
+            challenge.id,
+            input.deadlineAt.getTime() - input.startedAt.getTime(),
+          )
+        : input.deadlineAt.getTime() - input.startedAt.getTime();
       const turnWindow = await openControllerTurnWindowInTransaction(client, {
         id: randomUUID(),
         battleId,
         battleVersion: 0,
         turnNumber: 0,
         openedAt: input.startedAt,
-        deadlineAt: input.deadlineAt,
+        deadlineAt: new Date(input.startedAt.getTime() + duration),
       });
       if (!turnWindow.ok) {
         throw new Error(`Initial PVP TurnWindow failed: ${turnWindow.error.message}`);

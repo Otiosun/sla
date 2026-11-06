@@ -20,8 +20,8 @@ import {
   martQuantityOfferFromPromptKey,
   parseMartQuantityReply,
 } from "./mart-catalog.js";
+import { type MartPublishedOfferReader, purchasableMartItems } from "./mart-published-offers.js";
 import type { MartSaleInventoryReader } from "./mart-sale.js";
-import { purchasableMartItems, type MartPublishedOfferReader } from "./mart-published-offers.js";
 import {
   isMartSaleListPromptKey,
   martSaleItemByCode,
@@ -95,6 +95,14 @@ export interface WorldServiceConversationResolverDependencies {
   readonly sessions: Pick<WorldServiceSessionService, "loadActiveSession" | "recordSceneProof">;
   readonly replyIntent: WorldServiceReplyIntentVerifier;
   readonly economy?: MartEconomyService;
+  readonly admitsMartTradeRecovery?: (
+    playerId: PlayerId,
+    message: IncomingMessage,
+  ) => Promise<boolean>;
+  readonly recoverMartTrade?: (
+    playerId: PlayerId,
+    context: MessageHandlerContext,
+  ) => Promise<Result<MessageHandlerResult | null>>;
   readonly martAvailability?: MartPublishedOfferReader;
   readonly pcStorage?: Pick<PokemonPcStorageService, "getStorage"> &
     Partial<Pick<PokemonPcStorageService, "deposit" | "withdraw" | "organize">>;
@@ -263,6 +271,7 @@ export class WorldServiceConversationResolver {
       return true;
     }
 
+    if (await this.dependencies.admitsMartTradeRecovery?.(player.value, message)) return true;
     if (!isSceneProofCandidate(message)) return false;
     const location = await this.dependencies.world.getLocation(player.value);
     return location.ok;
@@ -280,6 +289,10 @@ export class WorldServiceConversationResolver {
     const player = await this.resolvePlayer(context.message);
     if (!player.ok) return ok(null);
 
+    if (this.dependencies.recoverMartTrade !== undefined) {
+      const recovered = await this.dependencies.recoverMartTrade(player.value, context);
+      if (!recovered.ok || recovered.value !== null) return recovered;
+    }
     const active = await this.dependencies.sessions.loadActiveSession(player.value);
     if (!active.ok) return active;
     const session = active.value;

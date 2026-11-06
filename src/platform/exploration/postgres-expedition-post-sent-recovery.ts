@@ -1,6 +1,6 @@
 import type { Pool } from "pg";
-import type { PendingOutboxMessage } from "../../modules/messaging/contracts.js";
 import type { ExpeditionSearchPostSentHook } from "../../modules/exploration/expedition-search-post-sent-hook.js";
+import type { PendingOutboxMessage } from "../../modules/messaging/contracts.js";
 
 interface PendingSentRow {
   readonly id: string;
@@ -31,6 +31,7 @@ export class PostgresExpeditionPostSentRecovery {
   constructor(
     private readonly pool: Pick<Pool, "query">,
     private readonly hook: Pick<ExpeditionSearchPostSentHook, "afterSent" | "onFailure">,
+    private readonly operationalPlayers?: ReadonlySet<string>,
   ) {}
 
   async runOnce(limit = 25): Promise<ExpeditionPostSentRecoveryResult> {
@@ -45,11 +46,16 @@ export class PostgresExpeditionPostSentRecovery {
        JOIN encounters encounter
          ON encounter.id = outcome.encounter_id
         AND encounter.status IN ('CREATED', 'PRESENTED', 'ENGAGED')
+          AND (encounter.expires_at IS NULL OR encounter.expires_at>clock_timestamp())
        WHERE o.channel = 'whatsapp'
          AND o.message_type = 'TEXT'
          AND o.status = 'SENT'
          AND o.sent_at IS NOT NULL
          AND o.payload ? 'expeditionSearch'
+         AND ($2::uuid[] IS NULL OR (outcome.player_id=ANY($2::uuid[]) AND EXISTS (
+           SELECT 1 FROM player_access access JOIN players player ON player.id=access.player_id
+           WHERE access.player_id=outcome.player_id AND access.status='ACTIVE' AND player.status='ACTIVE'
+         )))
          AND NOT (o.payload ? 'expeditionMenu')
          AND NOT EXISTS (
            SELECT 1 FROM solo_incidental_menu_snapshots issued
@@ -57,7 +63,7 @@ export class PostgresExpeditionPostSentRecovery {
          )
        ORDER BY o.sent_at, o.id
        LIMIT $1`,
-      [limit],
+      [limit, this.operationalPlayers === undefined ? null : [...this.operationalPlayers]],
     );
     let engaged = 0;
     let blocked = 0;

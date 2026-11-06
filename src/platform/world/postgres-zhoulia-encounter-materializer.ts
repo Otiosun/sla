@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import {
   validateZhouliaContentBundle,
+  ZHOULIA_APPROVED_V4_CONTENT,
   ZHOULIA_TYPED_CONTENT_V1,
   type ZhouliaContentBundle,
 } from "../../modules/world/zhoulia-content.js";
@@ -9,6 +10,8 @@ import {
   buildBalancedZhouliaEncounterPlans,
   type ZhouliaBalancedEncounterPlan,
 } from "../../modules/world/zhoulia-encounter-balance.js";
+
+import { writeApprovedV4Policies } from "./approved-v4-policies.js";
 
 export interface ZhouliaEncounterMaterializationResult {
   readonly releaseId: string;
@@ -163,7 +166,33 @@ export class PostgresZhouliaEncounterDraftMaterializer {
     readonly releaseId: string;
     readonly bundle?: ZhouliaContentBundle;
   }): Promise<ZhouliaEncounterMaterializationResult> {
-    const bundle = input.bundle ?? ZHOULIA_TYPED_CONTENT_V1;
+    return this.materializeDraft(input.releaseId, input.bundle ?? ZHOULIA_TYPED_CONTENT_V1);
+  }
+
+  public async materializeApprovedV4(input: {
+    readonly releaseId: string;
+    /** Species slugs reviewed against the candidate's event, Jornada and staff reservations. */
+    readonly reservedSpeciesSlugs: readonly string[];
+  }): Promise<ZhouliaEncounterMaterializationResult> {
+    if (
+      process.env.APP_ENV !== "test" ||
+      process.env.NODE_ENV !== "test" ||
+      process.env.WHATSAPP_ENABLED !== "false" ||
+      process.env.ALLOW_DISPOSABLE_POSTGRES_TESTS !== "1"
+    )
+      throw new Error("Approved V4 materialization requires an isolated test runtime");
+    return this.materializeDraft(
+      input.releaseId,
+      ZHOULIA_APPROVED_V4_CONTENT,
+      new Set(input.reservedSpeciesSlugs),
+    );
+  }
+
+  private async materializeDraft(
+    releaseId: string,
+    bundle: ZhouliaContentBundle,
+    reservedSpecies?: ReadonlySet<string>,
+  ): Promise<ZhouliaEncounterMaterializationResult> {
     validateZhouliaContentBundle(bundle);
     const plans = buildBalancedZhouliaEncounterPlans(bundle);
 
@@ -171,20 +200,25 @@ export class PostgresZhouliaEncounterDraftMaterializer {
     try {
       await client.query("BEGIN");
       await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [
-        `catalog-release:${input.releaseId}`,
+        `catalog-release:${releaseId}`,
       ]);
-      await requireDraftRelease(client, input.releaseId);
+      await requireDraftRelease(client, releaseId);
 
+      const areaIds = new Set<string>();
       let entriesMaterialized = 0;
       for (const plan of plans) {
-        const areaId = await resolveAreaId(client, input.releaseId, plan.areaIdentity);
-        const table = await ensureTable(client, input.releaseId, areaId, plan);
+        const areaId = await resolveAreaId(client, releaseId, plan.areaIdentity);
+        areaIds.add(areaId);
+        const table = await ensureTable(client, releaseId, areaId, plan);
         await client.query("DELETE FROM encounter_entries WHERE encounter_table_revision_id=$1", [
           table.revisionId,
         ]);
 
         for (const entry of plan.entries) {
-          const formId = await resolveFormId(client, input.releaseId, entry.speciesKey);
+          if (reservedSpecies?.has(speciesSlug(entry.speciesKey))) {
+            throw new Error(`Approved V4 pool conflicts with reserved species ${entry.speciesKey}`);
+          }
+          const formId = await resolveFormId(client, releaseId, entry.speciesKey);
           await client.query(
             `INSERT INTO encounter_entries(
                id,encounter_table_revision_id,form_id,weight,min_level,max_level,active,conditions
@@ -203,9 +237,19 @@ export class PostgresZhouliaEncounterDraftMaterializer {
         }
       }
 
+      if (reservedSpecies !== undefined) {
+        const vilaId = await resolveAreaId(client, releaseId, "zhoulia.area.vila-dos-arrozais");
+        await client.query(
+          `UPDATE encounter_table_revisions revision SET active=FALSE
+           FROM encounter_tables pool WHERE pool.id=revision.encounter_table_id
+             AND revision.content_release_id=$1 AND pool.area_id=$2 AND pool.slug='village-rare'`,
+          [releaseId, vilaId],
+        );
+        await writeApprovedV4Policies(client, releaseId, [...areaIds]);
+      }
       await client.query("COMMIT");
       return {
-        releaseId: input.releaseId,
+        releaseId,
         tablesMaterialized: plans.length,
         entriesMaterialized,
         balancePolicyVersion: 1,

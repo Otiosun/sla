@@ -50,6 +50,7 @@ export interface EncounterTransaction {
   snapshot(encounterId: EncounterId): Promise<WildPokemonSnapshot | null>;
   wildSnapshots?(encounterId: EncounterId): Promise<readonly EncounterWildSnapshot[]>;
   battleId(encounterId: EncounterId): Promise<string | null>;
+  knownSpecies?(playerId: PlayerId, speciesSlug: string): Promise<string | null>;
   tables(contentReleaseId: string, areaId: string): Promise<readonly EncounterTableRecord[]>;
   wildBuild(contentReleaseId: string, formId: string): Promise<WildPokemonBuild | null>;
   insertEncounter(input: {

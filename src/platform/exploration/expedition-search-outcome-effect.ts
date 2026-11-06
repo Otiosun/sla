@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
-import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import type { ExpeditionSnapshot } from "../../modules/exploration/expedition-state.js";
+import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 
 /**
  * These are persistence categories, NOT new probability weights or an
@@ -31,12 +31,11 @@ export interface SearchOutcomePolicy {
   ): Promise<Result<SearchOutcomeDecision>>;
 }
 
-export interface EncounterOutcomeEffect {
-  (
-    client: PoolClient,
-    expedition: ExpeditionSnapshot,
-  ): Promise<Result<{ readonly effectRef: string }>>;
-}
+export type EncounterOutcomeEffect = (
+  client: PoolClient,
+  expedition: ExpeditionSnapshot,
+  target?: { readonly speciesSlug: string; readonly followTrail?: boolean },
+) => Promise<Result<{ readonly effectRef: string }>>;
 
 /**
  * Compose the trusted outcome selection with the canonical EncounterService.
@@ -54,18 +53,23 @@ export interface EncounterOutcomeEffect {
 export function createSearchOutcomeEffect(deps: {
   readonly policy: SearchOutcomePolicy;
   readonly encounter: EncounterOutcomeEffect;
+  readonly targetSpeciesSlug?: string;
 }): EncounterOutcomeEffect {
   return async (client, expedition) => {
     const selected = await deps.policy.decide(client, expedition);
     if (!selected.ok) return selected;
-    const kind = selected.value.kind;
+    let kind = selected.value.kind;
     if (!["NO_SIGNAL", "TRAIL", "INCIDENTAL", "DIRECT"].includes(kind)) {
       return err(appError("ACTION_INVALID", "Unknown authoritative search outcome"));
     }
 
     let encounterId: string | null = null;
     if (kind === "INCIDENTAL" || kind === "DIRECT") {
-      const candidate = await deps.encounter(client, expedition);
+      const candidate = await deps.encounter(
+        client,
+        expedition,
+        deps.targetSpeciesSlug === undefined ? undefined : { speciesSlug: deps.targetSpeciesSlug },
+      );
       if (!candidate.ok) return candidate;
       const valid = await client.query<{ id: string }>(
         `SELECT encounter.id::text AS id FROM encounters encounter
@@ -85,6 +89,19 @@ export function createSearchOutcomeEffect(deps: {
           appError("FLOW_BLOCKED", "Canonical encounter was not persisted in the active release"),
         );
       }
+      if (deps.targetSpeciesSlug !== undefined) {
+        // Published outcome odds decide whether an encounter happens. The species
+        // draw (including target x3) decides whether that encounter is the target.
+        const actual = await client.query<{ slug: string }>(
+          `SELECT species.slug FROM encounter_snapshots snapshot
+           JOIN pokemon_species species ON species.id=(snapshot.pokemon_snapshot->>'speciesId')::uuid
+           WHERE snapshot.encounter_id=$1`,
+          [encounterId],
+        );
+        if (!actual.rows[0])
+          return err(appError("FLOW_BLOCKED", "Search species snapshot is missing"));
+        kind = actual.rows[0].slug === deps.targetSpeciesSlug ? "DIRECT" : "INCIDENTAL";
+      }
     }
 
     const outcomeId = randomUUID();
@@ -101,6 +118,12 @@ export function createSearchOutcomeEffect(deps: {
         encounterId,
       ],
     );
+    if (deps.targetSpeciesSlug !== undefined) {
+      await client.query(
+        `INSERT INTO solo_expedition_search_targets(outcome_id,species_slug) VALUES ($1,$2)`,
+        [outcomeId, deps.targetSpeciesSlug],
+      );
+    }
     return ok({ effectRef: outcomeId });
   };
 }

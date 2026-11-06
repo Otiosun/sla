@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { Pool, type PoolClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { runMigrations } from "../../src/platform/db/migrations.js";
-import { PostgresFishingAttemptRepository } from "../../src/platform/world-services/postgres-fishing-attempt-repository.js";
 import { ManualClock, SystemClock } from "../../src/platform/clock/index.js";
+import { runMigrations } from "../../src/platform/db/migrations.js";
 import { AesEncounterSeedProvider } from "../../src/platform/rng/encrypted-seed-provider.js";
+import { PostgresFishingAttemptRepository } from "../../src/platform/world-services/postgres-fishing-attempt-repository.js";
 import { createPlayerId, type PlayerId } from "../../src/shared-kernel/ids.js";
 
 const databaseUrl = (() => {
@@ -466,6 +466,10 @@ describe.sequential("Fishing PostgreSQL attempt authority", () => {
     ).toMatchObject({ kind: "DAILY_LIMIT_REACHED" });
 
     // Same message still replays its persisted outcome after the day changed.
+    // Concurrent reservations do not promise that the first submitted key wins
+    // the first slot: replay must preserve the slot that actually committed.
+    const original = used[0];
+    if (original?.kind !== "RESERVED") throw new Error("Expected a committed boundary attempt");
     clock.advanceMs(1000);
     expect(
       await zoned.reserveAttempt({
@@ -473,7 +477,7 @@ describe.sequential("Fishing PostgreSQL attempt authority", () => {
         idempotencyKey: "boundary-0",
         roll: 20,
       }),
-    ).toMatchObject({ kind: "RESERVED", replayed: true, attemptNo: 1, roll: 9 });
+    ).toMatchObject({ kind: "RESERVED", replayed: true, attemptNo: original.attemptNo, roll: 9 });
     expect(
       await zoned.reserveAttempt({
         playerId,

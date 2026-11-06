@@ -5,33 +5,33 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { PveBattleStartService } from "../../src/modules/battle/pve-battle-start.js";
 import { BattleService } from "../../src/modules/battle/service.js";
 import { EncounterService } from "../../src/modules/encounter/service.js";
+import { ExpeditionIncidentalCaptureAction } from "../../src/modules/exploration/expedition-incidental-capture-action.js";
+import { prepareIncidentalEncounterForCapture } from "../../src/modules/exploration/expedition-incidental-encounter-engagement.js";
+import { ExpeditionIncidentalMenuDispatcher } from "../../src/modules/exploration/expedition-incidental-menu-dispatch.js";
+import { ExpeditionIncidentalTransportSeam } from "../../src/modules/exploration/expedition-incidental-transport-seam.js";
+import { FishingService } from "../../src/modules/world-services/fishing-service.js";
 import { PostgresBattleParticipantControllerRepository } from "../../src/platform/battle/postgres-battle-participant-controller-repository.js";
 import { PostgresBattleRepository } from "../../src/platform/battle/postgres-battle-repository.js";
 import { PostgresBattleTurnWindowRepository } from "../../src/platform/battle/postgres-battle-turn-window-repository.js";
 import { PostgresPveBattleStartRollback } from "../../src/platform/battle/postgres-pve-battle-start-rollback.js";
-import { ManualClock } from "../../src/platform/clock/index.js";
+import { type Clock, ManualClock, SystemClock } from "../../src/platform/clock/index.js";
 import { runMigrations } from "../../src/platform/db/migrations.js";
+import {
+  encounterRepositoryWithinTransaction,
+  PostgresEncounterRepository,
+} from "../../src/platform/encounter/postgres-encounter-repository.js";
 import { createDirectEncounterEffect } from "../../src/platform/exploration/expedition-direct-encounter-effect.js";
+import { PublishedSearchOutcomePolicy } from "../../src/platform/exploration/expedition-published-outcome-policy.js";
 import {
   createSearchOutcomeEffect,
   readStoredSearchOutcome,
 } from "../../src/platform/exploration/expedition-search-outcome-effect.js";
-import { PostgresIncidentalOutcomeAuthorization } from "../../src/platform/exploration/postgres-incidental-outcome-authorization.js";
-import { PostgresIncidentalMenuSnapshots } from "../../src/platform/exploration/postgres-incidental-menu-snapshots.js";
-import { PostgresIncidentalMenuReplyBinding } from "../../src/platform/exploration/postgres-incidental-menu-reply-binding.js";
-import { PublishedSearchOutcomePolicy } from "../../src/platform/exploration/expedition-published-outcome-policy.js";
-import { ExpeditionIncidentalTransportSeam } from "../../src/modules/exploration/expedition-incidental-transport-seam.js";
-import { ExpeditionIncidentalMenuDispatcher } from "../../src/modules/exploration/expedition-incidental-menu-dispatch.js";
-import { ExpeditionIncidentalCaptureAction } from "../../src/modules/exploration/expedition-incidental-capture-action.js";
-import { prepareIncidentalEncounterForCapture } from "../../src/modules/exploration/expedition-incidental-encounter-engagement.js";
 import { PostgresExpeditionRepository } from "../../src/platform/exploration/postgres-expedition-repository.js";
-import {
-  PostgresEncounterRepository,
-  encounterRepositoryWithinTransaction,
-} from "../../src/platform/encounter/postgres-encounter-repository.js";
+import { PostgresIncidentalMenuReplyBinding } from "../../src/platform/exploration/postgres-incidental-menu-reply-binding.js";
+import { PostgresIncidentalMenuSnapshots } from "../../src/platform/exploration/postgres-incidental-menu-snapshots.js";
+import { PostgresIncidentalOutcomeAuthorization } from "../../src/platform/exploration/postgres-incidental-outcome-authorization.js";
 import { AesEncounterSeedProvider } from "../../src/platform/rng/encrypted-seed-provider.js";
 import { PostgresFishingAttemptRepository } from "../../src/platform/world-services/postgres-fishing-attempt-repository.js";
-import { FishingService } from "../../src/modules/world-services/fishing-service.js";
 import {
   createCorrelationId,
   createEncounterId,
@@ -73,7 +73,7 @@ function unwrap<T>(result: Result<T>): T {
 
 function service(
   pool: Pool,
-  clock: ManualClock,
+  clock: Clock,
   seedFactory: () => Buffer = () => Buffer.alloc(32, 0x4c),
 ): EncounterService {
   return new EncounterService(
@@ -558,6 +558,7 @@ describe("encounter PostgreSQL integration", () => {
       for (const kind of ["DIRECT", "INCIDENTAL"] as const) {
         const playerId = await createEligiblePlayer(client, fixture.areaId);
         const clock = new ManualClock(FIXED_NOW);
+        const encounterClock = new SystemClock();
         const store = new PostgresExpeditionRepository(pool, clock, "America/Maceio");
         const prepared = unwrap(
           await store.prepare({
@@ -570,7 +571,7 @@ describe("encounter PostgreSQL integration", () => {
           seedProvider: new AesEncounterSeedProvider(Buffer.alloc(32, 0xa5), 1, () =>
             Buffer.alloc(32, 0x4c),
           ),
-          clock,
+          clock: encounterClock,
           feature: FEATURE_ENABLED,
         });
         let decisionCount = 0;
@@ -638,7 +639,7 @@ describe("encounter PostgreSQL integration", () => {
             outcome?.encounterId as string as import("../../src/shared-kernel/ids.js").EncounterId;
           const deps = {
             authorize: ownerGate,
-            encounters: service(pool, new ManualClock(FIXED_NOW)),
+            encounters: service(pool, encounterClock),
           };
           const ready = unwrap(
             await prepareIncidentalEncounterForCapture(deps, {

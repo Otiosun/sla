@@ -18,6 +18,7 @@ import { AdminService } from "../modules/admin/service.js";
 import { createUatBootstrapRoutes, UatBootstrapService } from "../modules/admin/uat-bootstrap.js";
 import { createAdminBatchWhatsAppRoutes } from "../modules/admin/whatsapp-batch-handlers.js";
 import { AdminBatchWhatsAppPreviewDeliveryPreparation } from "../modules/admin/whatsapp-batch-preview-delivery.js";
+import type { PreparedSceneAction } from "../modules/battle/combat-scene-gate.js";
 import { BattleOperationalReadService } from "../modules/battle/operational-read-service.js";
 import {
   createPveBattleFinishWhatsAppRoute,
@@ -29,14 +30,6 @@ import {
   createPveSceneRoutes,
 } from "../modules/battle/pve-scene-whatsapp.js";
 import { CaptureService } from "../modules/capture/service.js";
-import { IncidentalGameGroupAdmission } from "../modules/exploration/expedition-incidental-game-group-admission.js";
-import { ExpeditionCanonicalChoiceStagingResolver } from "../modules/exploration/expedition-canonical-choice-staging.js";
-import { ExpeditionIncidentalIgnoreStagingAction } from "../modules/exploration/expedition-incidental-ignore-staging.js";
-import {
-  createExpeditionV4ReadOnlyRoutes,
-  createExpeditionV4StagingPreparationRoutes,
-  createExpeditionV4StagingSearchRoutes,
-} from "../modules/exploration/expedition-v4-readonly-whatsapp.js";
 import { ReceptionAwareConversationResolver } from "../modules/community/reception-conversation-resolver.js";
 import {
   type ReceptionMembershipEvent,
@@ -64,11 +57,28 @@ import {
   createCompetitiveSpawnGuessRoute,
 } from "../modules/competitive-spawn/service.js";
 import { EconomyService } from "../modules/economy/service.js";
-import { MoveTrainingService } from "../modules/progression/move-training-service.js";
 import { EncounterOperationalReadService } from "../modules/encounter/operational-read-service.js";
 import { EncounterService } from "../modules/encounter/service.js";
 import { createSpawnWhatsAppRoute } from "../modules/encounter/spawn-whatsapp.js";
-import type { IncomingMessage } from "../modules/messaging/contracts.js";
+import { ExpeditionCanonicalChoiceStagingResolver } from "../modules/exploration/expedition-canonical-choice-staging.js";
+import { IncidentalGameGroupAdmission } from "../modules/exploration/expedition-incidental-game-group-admission.js";
+import { ExpeditionIncidentalIgnoreStagingAction } from "../modules/exploration/expedition-incidental-ignore-staging.js";
+import {
+  createExpeditionReportHandler,
+  registerExpeditionReportReview,
+} from "../modules/exploration/expedition-report-whatsapp.js";
+import {
+  expeditionOperationAllowed,
+  withExpeditionAudience,
+} from "../modules/exploration/expedition-runtime-audience.js";
+import { ExpeditionSearchEngagementAfterSent } from "../modules/exploration/expedition-search-engagement-after-sent.js";
+import { ExpeditionSearchPostSentHook } from "../modules/exploration/expedition-search-post-sent-hook.js";
+import {
+  createExpeditionV4ReadOnlyRoutes,
+  createExpeditionV4StagingPreparationRoutes,
+  createExpeditionV4StagingSearchRoutes,
+} from "../modules/exploration/expedition-v4-readonly-whatsapp.js";
+import type { IncomingMessage, MessageHandlerContext } from "../modules/messaging/contracts.js";
 import { withOperationalCommandAliases } from "../modules/messaging/operational-command-aliases.js";
 import { withOperationalWorldPolicy } from "../modules/messaging/operational-command-policy.js";
 import { createOperationalUxRoutes } from "../modules/messaging/operational-ux-handlers.js";
@@ -79,15 +89,18 @@ import type {
 import { MessageRouter } from "../modules/messaging/router.js";
 import {
   MessagingService,
-  OutboxWorker,
+  OutboxDeliveryDenied,
   type OutboxPostSentHook,
+  OutboxWorker,
 } from "../modules/messaging/service.js";
 import { PlayerRegistrationService } from "../modules/player/registration-service.js";
 import { PlayerStarterService } from "../modules/player/starter-service.js";
 import { HubLoginTicketService } from "../modules/player-portal/login-ticket-service.js";
 import { createHubWhatsAppRoutes } from "../modules/player-portal/whatsapp-handlers.js";
+import { MoveTrainingService } from "../modules/progression/move-training-service.js";
 import { ProgressionService } from "../modules/progression/service.js";
 import { createProgressionWhatsAppRoutes } from "../modules/progression/whatsapp-handlers.js";
+import { createPvpGroupTimingRoute, registerPvpGroupTiming } from "../modules/pvp/group-timing.js";
 import { PvpService } from "../modules/pvp/service.js";
 import { initialPvpTiming } from "../modules/pvp/turn-window-policy.js";
 import { createPvpWhatsAppRoutes } from "../modules/pvp/whatsapp-handlers.js";
@@ -139,31 +152,36 @@ import { PostgresCompetitiveSpawnRepository } from "../platform/competitive-spaw
 import { PostgresCompetitiveSpawnRewardRecoveryRepository } from "../platform/competitive-spawn/postgres-competitive-spawn-reward-recovery.js";
 import { PostgresCompetitiveSpawnSettingsRepository } from "../platform/competitive-spawn/postgres-competitive-spawn-settings-repository.js";
 import { PostgresEconomyRepository } from "../platform/economy/postgres-economy-repository.js";
-import { PostgresExpeditionV4EventHistoryReader } from "../platform/exploration/postgres-expedition-v4-event-history-reader.js";
-import { PostgresExpeditionV4StatusReader } from "../platform/exploration/postgres-expedition-v4-status-reader.js";
-import { PostgresExpeditionV4StagingTravel } from "../platform/exploration/postgres-expedition-v4-travel.js";
-import { PostgresExpeditionTravelConfirmationRecovery } from "../platform/exploration/postgres-expedition-travel-confirmation-recovery.js";
-import { PostgresExpeditionRepository } from "../platform/exploration/postgres-expedition-repository.js";
-import { PostgresExpeditionEndConfirmationRecovery } from "../platform/exploration/postgres-expedition-end-confirmation-recovery.js";
-import { PostgresExpeditionQuotedEncounterProof } from "../platform/exploration/postgres-expedition-quoted-encounter-proof.js";
-import { PostgresExpeditionIssuedMenuReplyProof } from "../platform/exploration/postgres-expedition-issued-menu-reply-proof.js";
-import { PostgresExpeditionCaptureConfirmationRecovery } from "../platform/exploration/postgres-expedition-capture-confirmation-recovery.js";
-import { PostgresExpeditionIgnoreConfirmationRecovery } from "../platform/exploration/postgres-expedition-ignore-confirmation-recovery.js";
-import { PostgresExpeditionBattleConfirmationRecovery } from "../platform/exploration/postgres-expedition-battle-confirmation-recovery.js";
-import { PostgresExpeditionOfflineBattleStart } from "../platform/exploration/postgres-expedition-offline-battle-start.js";
-import { PostgresExpeditionV4StagingSearch } from "../platform/exploration/postgres-expedition-v4-search.js";
-import { PostgresExpeditionV4StagingTrailFollow } from "../platform/exploration/postgres-expedition-v4-trail.js";
-import { PostgresExpeditionTrailConfirmationRecovery } from "../platform/exploration/postgres-expedition-trail-confirmation-recovery.js";
-import { PostgresExpeditionResourceConfirmationRecovery } from "../platform/exploration/postgres-expedition-resource-confirmation-recovery.js";
-import {
-  PublishedResourceLootPolicy,
-  PostgresExpeditionV4StagingResourceSearch,
-} from "../platform/exploration/postgres-expedition-v4-resources.js";
-import { PublishedSearchOutcomePolicy } from "../platform/exploration/expedition-published-outcome-policy.js";
-import { createDirectEncounterEffect } from "../platform/exploration/expedition-direct-encounter-effect.js";
 import { PostgresEncounterRepository } from "../platform/encounter/postgres-encounter-repository.js";
 import { PostgresNarratorSpawnContextResolver } from "../platform/encounter/postgres-narrator-spawn-context.js";
 import { PostgresNarratorSpawnSpeciesResolver } from "../platform/encounter/postgres-narrator-spawn-species-resolver.js";
+import { createDirectEncounterEffect } from "../platform/exploration/expedition-direct-encounter-effect.js";
+import { PublishedSearchOutcomePolicy } from "../platform/exploration/expedition-published-outcome-policy.js";
+import { PostgresExpeditionBattleConfirmationRecovery } from "../platform/exploration/postgres-expedition-battle-confirmation-recovery.js";
+import { PostgresExpeditionCaptureConfirmationRecovery } from "../platform/exploration/postgres-expedition-capture-confirmation-recovery.js";
+import { PostgresExpeditionEndConfirmationRecovery } from "../platform/exploration/postgres-expedition-end-confirmation-recovery.js";
+import { PostgresExpeditionIgnoreConfirmationRecovery } from "../platform/exploration/postgres-expedition-ignore-confirmation-recovery.js";
+import { PostgresExpeditionIssuedMenuReplyProof } from "../platform/exploration/postgres-expedition-issued-menu-reply-proof.js";
+import { PostgresExpeditionNavigation } from "../platform/exploration/postgres-expedition-navigation.js";
+import { PostgresExpeditionOfflineBattleStart } from "../platform/exploration/postgres-expedition-offline-battle-start.js";
+import { PostgresExpeditionPostSentRecovery } from "../platform/exploration/postgres-expedition-post-sent-recovery.js";
+import { PostgresExpeditionQuotedEncounterProof } from "../platform/exploration/postgres-expedition-quoted-encounter-proof.js";
+import { PostgresExpeditionReadOnlyMenuIssuer } from "../platform/exploration/postgres-expedition-readonly-menu-issuer.js";
+import { PostgresExpeditionReports } from "../platform/exploration/postgres-expedition-reports.js";
+import { PostgresExpeditionRepository } from "../platform/exploration/postgres-expedition-repository.js";
+import { PostgresExpeditionResourceConfirmationRecovery } from "../platform/exploration/postgres-expedition-resource-confirmation-recovery.js";
+import { PostgresExpeditionSearchSentProof } from "../platform/exploration/postgres-expedition-search-sent-proof.js";
+import { PostgresExpeditionTrailConfirmationRecovery } from "../platform/exploration/postgres-expedition-trail-confirmation-recovery.js";
+import { PostgresExpeditionTravelConfirmationRecovery } from "../platform/exploration/postgres-expedition-travel-confirmation-recovery.js";
+import { PostgresExpeditionV4EventHistoryReader } from "../platform/exploration/postgres-expedition-v4-event-history-reader.js";
+import {
+  PostgresExpeditionV4StagingResourceSearch,
+  PublishedResourceLootPolicy,
+} from "../platform/exploration/postgres-expedition-v4-resources.js";
+import { PostgresExpeditionV4StagingSearch } from "../platform/exploration/postgres-expedition-v4-search.js";
+import { PostgresExpeditionV4StatusReader } from "../platform/exploration/postgres-expedition-v4-status-reader.js";
+import { PostgresExpeditionV4StagingTrailFollow } from "../platform/exploration/postgres-expedition-v4-trail.js";
+import { PostgresExpeditionV4StagingTravel } from "../platform/exploration/postgres-expedition-v4-travel.js";
 import type { StructuredLogger } from "../platform/logging/index.js";
 import { PostgresMessagingRepository } from "../platform/messaging/postgres-messaging-repository.js";
 import { PostgresOperationalUxReadModel } from "../platform/messaging/postgres-operational-ux-read-model.js";
@@ -174,6 +192,7 @@ import { PostgresPokedexAdminSeenOwner } from "../platform/pokedex/postgres-poke
 import { PostgresBattleRewardWhatsAppProjector } from "../platform/progression/postgres-battle-reward-whatsapp-projector.js";
 import { PostgresProgressionRepository } from "../platform/progression/postgres-progression-repository.js";
 import { PostgresPvpChallengeRepository } from "../platform/pvp/postgres-pvp-challenge-repository.js";
+import { PostgresPvpGroupTiming } from "../platform/pvp/postgres-pvp-group-timing.js";
 import { PostgresPvpStartRepository } from "../platform/pvp/postgres-pvp-start-repository.js";
 import { PostgresPlayerAccessRepository } from "../platform/registration/postgres-player-access-repository.js";
 import { PostgresPlayerActivationKit } from "../platform/registration/postgres-player-activation-kit.js";
@@ -184,18 +203,20 @@ import { PostgresRegistrationReplyIntentVerifier } from "../platform/registratio
 import { PostgresRegistrationRepository } from "../platform/registration/postgres-registration-repository.js";
 import { PostgresRegistrationSetupLoader } from "../platform/registration/postgres-registration-setup-loader.js";
 import { RegistrationReviewDeliveryPreparation } from "../platform/registration/registration-review-delivery-preparation.js";
-import { AesEncounterSeedProvider } from "../platform/rng/encrypted-seed-provider.js";
 import { AesBattleSeedReader } from "../platform/rng/battle-seed-reader.js";
+import { AesEncounterSeedProvider } from "../platform/rng/encrypted-seed-provider.js";
 import { CryptoRandomSource } from "../platform/rng/index.js";
 import { PostgresWorldRepository } from "../platform/world/postgres-world-repository.js";
 import { PostgresFishingAttemptRepository } from "../platform/world-services/postgres-fishing-attempt-repository.js";
-import { PostgresMartSaleInventoryReader } from "../platform/world-services/postgres-mart-sale-inventory-reader.js";
 import { PostgresMartPublishedOffersReader } from "../platform/world-services/postgres-mart-published-offers-reader.js";
+import { PostgresMartSaleInventoryReader } from "../platform/world-services/postgres-mart-sale-inventory-reader.js";
+import { PostgresMartTrade } from "../platform/world-services/postgres-mart-trade.js";
 import { PostgresPokemonCenterHealingRepository } from "../platform/world-services/postgres-pokemon-center-healing-repository.js";
 import { PostgresPokemonPcStorageRepository } from "../platform/world-services/postgres-pokemon-pc-storage-repository.js";
 import { PostgresWorldServiceSessionRepository } from "../platform/world-services/postgres-world-service-session-repository.js";
 import { WorldServicePromptDeliveryPreparation } from "../platform/world-services/world-service-prompt-delivery-preparation.js";
 import { ok } from "../shared-kernel/result.js";
+import { createCombatSceneRuntime } from "./combat-scene-runtime.js";
 import {
   createPveBattleRuntime,
   type PveBattleRuntimeConfig,
@@ -203,6 +224,8 @@ import {
 import { resolveNarratorEncounterEnvironment } from "./encounter-environment-runtime-config.js";
 import type { EncounterRngRuntimeConfig } from "./encounter-rng-runtime-config.js";
 import { filterActiveNarratorBattleIds } from "./narrator-battle-context.js";
+import { OperationalExpeditionLegacyBoundary } from "./operational-expedition-legacy-boundary.js";
+import type { OperationalExpeditionPreview } from "./operational-expedition-preview.js";
 
 export type WhatsAppSessionInvalidationReason = "PAIRING_REQUIRED" | "LOGGED_OUT";
 
@@ -216,6 +239,7 @@ export interface OperationalWhatsAppRuntimeOptions {
   readonly pveBattleConfig?: PveBattleRuntimeConfig;
   readonly worldServiceMedia?: WorldServiceMediaCatalog;
   readonly hubPublicUrl?: string | null;
+  readonly expeditionPreview?: OperationalExpeditionPreview | null;
   readonly onSessionInvalidated?: (reason: WhatsAppSessionInvalidationReason) => void;
   readonly onProviderConnectionState?: (
     state: WhatsAppProviderConnectionState,
@@ -254,7 +278,33 @@ export function createOperationalMessagingComposition(
   explorationOfflineChoicesEnabled = false,
   explorationStagingResourcesEnabled = false,
   explorationStagingTrailEnabled = false,
+  combatScenesEnabled = false,
+  explorationReadMoreCombiningCount = 0,
+  operationalExpeditionPreview: OperationalExpeditionPreview | null = null,
+  enforceOperationalExpeditionBoundary = false,
 ): OperationalMessagingComposition {
+  if (
+    operationalExpeditionPreview !== null &&
+    (explorationStagingPreparationEnabled ||
+      explorationStagingSearchSecret !== null ||
+      explorationOfflineChoicesEnabled ||
+      explorationStagingResourcesEnabled ||
+      explorationStagingTrailEnabled ||
+      combatScenesEnabled)
+  ) {
+    throw new Error("Operational V4 preview cannot be combined with isolated write paths");
+  }
+  if (
+    combatScenesEnabled &&
+    (process.env.APP_ENV !== "test" ||
+      process.env.NODE_ENV !== "test" ||
+      process.env.WHATSAPP_ENABLED !== "false" ||
+      encounterRngConfig === null ||
+      pveBattleConfig === null)
+  )
+    throw new Error(
+      "Combat scenes require isolated development with canonical battle dependencies",
+    );
   // Development integration is separate from local installation and real UAT.
   // Never permit these draft-schema writes or private quoted actions in a
   // live Baileys runtime, even if an opt-in was passed accidentally.
@@ -314,7 +364,49 @@ export function createOperationalMessagingComposition(
       "Staging search requires explicit preparation, separate calendar and encounter RNG",
     );
   }
-  const pveBattle = pveBattleConfig === null ? null : createPveBattleRuntime(pool, pveBattleConfig);
+  const operationalPlay = operationalExpeditionPreview?.playSecret !== undefined;
+  if (operationalPlay) {
+    if (
+      encounterRngConfig === null ||
+      pveBattleConfig === null ||
+      explorationPreviewTimeZone === null
+    )
+      throw new Error(
+        "Private V4 gameplay requires the canonical Encounter, PvE and expedition calendar",
+      );
+    explorationStagingPreparationEnabled = true;
+    explorationStagingSearchSecret = operationalExpeditionPreview!.playSecret!;
+    explorationOfflineChoicesEnabled = true;
+    explorationStagingResourcesEnabled = true;
+    explorationStagingTrailEnabled = true;
+  }
+  const operationalPlayers = operationalPlay
+    ? operationalExpeditionPreview!.allowedPlayerIds
+    : new Set<string>();
+  const legacyBoundary =
+    operationalPlay || enforceOperationalExpeditionBoundary
+      ? new OperationalExpeditionLegacyBoundary(pool, operationalPlayers)
+      : null;
+  const pveBattle =
+    pveBattleConfig === null
+      ? null
+      : createPveBattleRuntime(
+          pool,
+          combatScenesEnabled
+            ? {
+                ...pveBattleConfig,
+                pvpGroupTimingEnabled: true,
+                expeditionBlackoutEnabled: explorationStagingSearchSecret !== null,
+              }
+            : legacyBoundary
+              ? {
+                  ...pveBattleConfig,
+                  expeditionBlackoutEnabled: operationalPlay,
+                  operationalExpeditionPlayers: operationalPlayers,
+                  permitsExpeditionBattle: legacyBoundary.permitsBattle.bind(legacyBoundary),
+                }
+              : pveBattleConfig,
+        );
   const battleRewardNotifications =
     pveBattleConfig === null ? null : new PostgresBattleRewardWhatsAppProjector(pool);
   const autoBattleTerminalNotifications =
@@ -335,7 +427,11 @@ export function createOperationalMessagingComposition(
       new SystemClock(),
       { enabled: true, reason: null },
       initialPvpTiming(pveBattleConfig.turnWindowTtlMs),
-      new PostgresPvpStartRepository(pool, new AesEncounterSeedProvider(key, keyVersion)),
+      new PostgresPvpStartRepository(
+        pool,
+        new AesEncounterSeedProvider(key, keyVersion),
+        combatScenesEnabled,
+      ),
     );
     return {
       service,
@@ -400,6 +496,7 @@ export function createOperationalMessagingComposition(
             clock,
             feature: { enabled: true, reason: null },
             fishingDayTimeZone,
+            expeditionEnabled: explorationStagingSearchSecret !== null,
           }),
           encounterWriter,
           new CryptoRandomSource(),
@@ -424,10 +521,17 @@ export function createOperationalMessagingComposition(
   const moveTraining = new MoveTrainingService(pool);
   const martSaleInventory = new PostgresMartSaleInventoryReader(pool);
   const martAvailability = new PostgresMartPublishedOffersReader(pool);
+  const martTrade = explorationStagingSearchSecret === null ? null : new PostgresMartTrade(pool);
   const martEconomy = {
-    purchaseQuantity: economy.purchaseQuantity.bind(economy),
+    purchaseQuantity: (input: Parameters<EconomyService["purchaseQuantity"]>[0]) =>
+      martTrade === null || (operationalPlay && !expeditionOperationAllowed(input.playerId))
+        ? economy.purchaseQuantity(input)
+        : martTrade.trade(input, (service) => service.purchaseQuantity(input)),
     getWalletBalance: economy.getWalletBalance.bind(economy),
-    sellQuantity: economy.sellQuantity.bind(economy),
+    sellQuantity: (input: Parameters<EconomyService["sellQuantity"]>[0]) =>
+      martTrade === null || (operationalPlay && !expeditionOperationAllowed(input.playerId))
+        ? economy.sellQuantity(input)
+        : martTrade.trade(input, (service) => service.sellQuantity(input)),
     listSellableInventory: martSaleInventory.listSellableInventory.bind(martSaleInventory),
   };
 
@@ -483,6 +587,18 @@ export function createOperationalMessagingComposition(
     communityGroup: communityGroupAdmin,
   });
   registerWorldGroupSetupOperation(adminRegistry);
+  const expeditionReports =
+    (combatScenesEnabled || operationalPlay) &&
+    explorationOfflineChoicesEnabled &&
+    explorationStagingSearchSecret !== null
+      ? new PostgresExpeditionReports(
+          pool,
+          explorationStagingSearchSecret,
+          operationalPlay ? operationalPlayers : undefined,
+        )
+      : null;
+  if (expeditionReports) registerExpeditionReportReview(adminRegistry, expeditionReports);
+  if (combatScenesEnabled) registerPvpGroupTiming(adminRegistry, new PostgresPvpGroupTiming(pool));
   const adminService = new AdminService(adminRegistry, adminRepository);
   const adminBatch = new AdminBatchService(
     adminService,
@@ -556,11 +672,16 @@ export function createOperationalMessagingComposition(
     presence: receptionPresence,
   });
   const worldServiceSessions = new WorldServiceSessionService(
-    new PostgresWorldServiceSessionRepository(pool),
+    new PostgresWorldServiceSessionRepository(pool, explorationStagingSearchSecret !== null),
     clock,
   );
   const pokemonCenterHealing = new PokemonCenterHealingService(
-    new PostgresPokemonCenterHealingRepository(pool),
+    new PostgresPokemonCenterHealingRepository(
+      pool,
+      explorationStagingSearchSecret !== null && explorationPreviewTimeZone !== null
+        ? { clock, timeZone: explorationPreviewTimeZone }
+        : undefined,
+    ),
   );
   const pokemonPcStorage = new PokemonPcStorageService(
     new PostgresPokemonPcStorageRepository(pool),
@@ -572,13 +693,25 @@ export function createOperationalMessagingComposition(
     sessions: worldServiceSessions,
     replyIntent: new PostgresRegistrationReplyIntentVerifier(pool),
     economy: martEconomy,
+    ...(martTrade === null
+      ? {}
+      : {
+          recoverMartTrade: martTrade.recover.bind(martTrade),
+          admitsMartTradeRecovery: async (playerId, message) =>
+            operationalPlay
+              ? withExpeditionAudience(await expeditionPlayerFor(message), () =>
+                  martTrade.admits(playerId, message),
+                )
+              : martTrade.admits(playerId, message),
+        }),
     martAvailability,
     pcStorage: pokemonPcStorage,
   });
-  // Optional development composition: connect the ACTUAL quoted-message
+  // Optional composition: connect the quoted-message
   // resolver to canonical Capture, Ignore and PvE transactional services.
   // No production constructor supplies this opt-in, and every mutation port
   // separately rejects non-test environments.
+  let combatScenes: ReturnType<typeof createCombatSceneRuntime> | null = null;
   const offlineExpeditionChoices =
     !explorationOfflineChoicesEnabled ||
     encounterRngConfig === null ||
@@ -620,6 +753,16 @@ export function createOperationalMessagingComposition(
               { enabled: true, reason: null },
             ),
             new PostgresExpeditionBattleConfirmationRecovery(pool),
+            ...(combatScenesEnabled || operationalPlay
+              ? [
+                  {
+                    receive: (context: MessageHandlerContext, prepared?: PreparedSceneAction) => {
+                      if (combatScenes === null) throw new Error("Scene runtime not initialized");
+                      return combatScenes.gate.receive(context, prepared);
+                    },
+                  },
+                ]
+              : []),
           );
         })();
   const isOfflineExpeditionReply = (message: IncomingMessage): boolean =>
@@ -627,9 +770,15 @@ export function createOperationalMessagingComposition(
     message.provider === "baileys" &&
     message.chatRef === message.senderRef &&
     /^[0-9]{5,20}@(s\.whatsapp\.net|lid)$/u.test(message.senderRef) &&
-    /^[0-4]$/u.test(message.text?.trim() ?? "") &&
+    /^[0-5]$/u.test(message.text?.trim() ?? "") &&
     message.replyToExternalMessageId !== null;
 
+  const expeditionNavigation =
+    offlineExpeditionChoices === null
+      ? null
+      : new PostgresExpeditionNavigation(pool, playerRegistration, (context) =>
+          router.dispatch(context),
+        );
   const nonReceptionConversationResolver = {
     resolve: async (context: Parameters<typeof receptionConversationResolver.resolve>[0]) => {
       const competitiveResult = await competitiveSpawn.resolve(context);
@@ -637,11 +786,29 @@ export function createOperationalMessagingComposition(
 
       let downstream = null;
       if (pveScene !== null) {
-        const sceneResult = await pveScene.resolve(context);
+        const sceneResult = await (operationalPlay && !expeditionOperationAllowed()
+          ? pveScene
+          : (combatScenes ?? pveScene)
+        ).resolve(context);
         if (!sceneResult.ok) return sceneResult;
         downstream = sceneResult.value;
       }
-      if (downstream === null && isOfflineExpeditionReply(context.message)) {
+      if (
+        downstream === null &&
+        isOfflineExpeditionReply(context.message) &&
+        (!operationalPlay || expeditionOperationAllowed())
+      ) {
+        const navigation = await expeditionNavigation?.resolve(context);
+        if (navigation !== undefined) {
+          if (!navigation.ok) return navigation;
+          downstream = navigation.value;
+        }
+      }
+      if (
+        downstream === null &&
+        isOfflineExpeditionReply(context.message) &&
+        (!operationalPlay || expeditionOperationAllowed())
+      ) {
         const expedition = await offlineExpeditionChoices?.resolve(context);
         if (expedition !== undefined) {
           if (!expedition.ok) return expedition;
@@ -722,10 +889,10 @@ export function createOperationalMessagingComposition(
         );
   const replyContext = new PostgresWhatsAppReplyResultContextResolver(pool);
 
-  const pveScene =
+  const pveSceneDependencies =
     pveBattle === null
       ? null
-      : createPveSceneConversationResolver({
+      : {
           players: playerRegistration,
           competitiveCapture: competitiveSpawn,
           activeBattleId: reads.activeBattleId.bind(reads),
@@ -744,7 +911,20 @@ export function createOperationalMessagingComposition(
           presentation: reads,
           playerExternalRef: externalRefForPlayer,
           admins: adminIdentity,
-        });
+        };
+  const pveScene =
+    pveSceneDependencies === null ? null : createPveSceneConversationResolver(pveSceneDependencies);
+  if ((combatScenesEnabled || operationalPlay) && pveSceneDependencies !== null) {
+    combatScenes = createCombatSceneRuntime(
+      pool,
+      pveSceneDependencies,
+      createPveSceneRoutes(pveSceneDependencies),
+      async (context) =>
+        offlineExpeditionChoices === null
+          ? ok(null)
+          : offlineExpeditionChoices.resolve(context, true),
+    );
+  }
 
   const narratorAutoBattle =
     pveBattleStart === null || pveBattle === null
@@ -1044,6 +1224,28 @@ export function createOperationalMessagingComposition(
     publicUrl: hubPublicUrl,
   });
   const receptionCommandScope = new ReceptionCommandScopeGate(community);
+  const expeditionPlayerFor = async (message: IncomingMessage) => {
+    if (!operationalExpeditionPreview || message.provider !== "baileys") return null;
+    const player = await playerRegistration.resolvePlayer({
+      provider: message.provider,
+      externalId: message.senderRef,
+    });
+    if (
+      !player.ok ||
+      player.value.state !== "COMPLETE" ||
+      !operationalExpeditionPreview.allowedPlayerIds.has(player.value.playerId)
+    )
+      return null;
+    if (operationalPlay) {
+      const access = await accessRepository.read((tx) => tx.load(player.value.playerId));
+      if (access.status !== "ACTIVE") return null;
+    }
+    return player.value.playerId;
+  };
+  const admitsExpeditionPreview = async (message: IncomingMessage, command: string | null) =>
+    operationalExpeditionPreview === null ||
+    !["explorar", "cena"].includes(command ?? "") ||
+    (await expeditionPlayerFor(message)) !== null;
   const router = new MessageRouter(
     [
       createCompetitiveSpawnAdminRoute(competitiveSpawn),
@@ -1064,6 +1266,17 @@ export function createOperationalMessagingComposition(
               }),
               clock,
               timeZone: explorationPreviewTimeZone,
+              combiningCount: explorationReadMoreCombiningCount,
+              ...(expeditionReports
+                ? {
+                    reports: createExpeditionReportHandler({
+                      players: playerRegistration,
+                      admins: adminIdentity,
+                      admin: adminService,
+                      reports: expeditionReports,
+                    }),
+                  }
+                : {}),
             };
             if (!explorationStagingPreparationEnabled) {
               return createExpeditionV4ReadOnlyRoutes(dependencies);
@@ -1134,26 +1347,32 @@ export function createOperationalMessagingComposition(
       ...adminBatchWhatsAppRoutes,
       ...(pveBattle === null
         ? []
-        : createPveSceneRoutes({
-            players: playerRegistration,
-            competitiveCapture: competitiveSpawn,
-            activeBattleId: reads.activeBattleId.bind(reads),
-            narratorBattleId,
-            narratorBattleIds,
-            replyContext,
-            ...(pveBattleStart === null ? {} : { battleStart: pveBattleStart }),
-            roster: reads,
-            turnWindowForBattleVersion: pveBattle.turnWindowForBattleVersion,
-            battle: pveBattle.battle,
-            controllers: new PostgresBattleParticipantControllerRepository(pool),
-            encounters: encounter,
-            ...(encounterWriter === undefined ? {} : { encounterWriter }),
-            ...(capture === undefined ? {} : { capture }),
-            captureBalls,
-            presentation: reads,
-            playerExternalRef: externalRefForPlayer,
-            admins: adminIdentity,
-          })),
+        : operationalPlay
+          ? createPveSceneRoutes(pveSceneDependencies!)
+              .map((legacy) => {
+                const scoped = combatScenes?.routes.find(
+                  (route) => route.command === legacy.command,
+                );
+                if (
+                  !scoped ||
+                  !["movimento", "trocar", "capturar", "fugir"].includes(legacy.command)
+                )
+                  return legacy;
+                const { policy: legacyPolicy, ...route } = legacy;
+                return {
+                  ...route,
+                  policyForContext: (context: MessageHandlerContext) =>
+                    expeditionOperationAllowed()
+                      ? (scoped.policyForContext?.(context) ?? scoped.policy)
+                      : (legacy.policyForContext?.(context) ?? legacyPolicy),
+                  handler: {
+                    handle: (context: MessageHandlerContext) =>
+                      (expeditionOperationAllowed() ? scoped : legacy).handler.handle(context),
+                  },
+                };
+              })
+              .concat(combatScenes?.routes.filter((route) => route.command === "cena") ?? [])
+          : (combatScenes?.routes ?? createPveSceneRoutes(pveSceneDependencies!))),
       ...(pvp === null
         ? []
         : createPvpWhatsAppRoutes({
@@ -1193,6 +1412,7 @@ export function createOperationalMessagingComposition(
         ? []
         : [
             createSpawnWhatsAppRoute({
+              combatScenesRequired: combatScenesEnabled,
               players: playerRegistration,
               encounters: encounterWriter,
               environment: () => resolveNarratorEncounterEnvironment(process.env),
@@ -1210,12 +1430,117 @@ export function createOperationalMessagingComposition(
         community,
         setup: new PostgresWorldGroupSetup(pool),
       }),
+      ...(combatScenesEnabled
+        ? [
+            createPvpGroupTimingRoute({
+              admins: adminIdentity,
+              admin: adminService,
+              community,
+              operationForKey: async (key) => {
+                const operation = await pool.query<{ id: string }>(
+                  "SELECT id FROM admin_operations WHERE idempotency_key=$1",
+                  [key],
+                );
+                return operation.rows[0]
+                  ? adminRepository.getOperation(operation.rows[0].id)
+                  : null;
+              },
+            }),
+          ]
+        : []),
       ...uatBootstrapRoutes,
       ...hubRoutes,
     ],
     policyGate,
     conversationResolver,
-    receptionCommandScope,
+    {
+      admits: async (context, command) =>
+        (await admitsExpeditionPreview(context.message, command)) &&
+        receptionCommandScope.admits(context, command),
+    },
+    legacyBoundary
+      ? async (context, run) => {
+          const player = operationalPlay ? await expeditionPlayerFor(context.message) : null;
+          const command = router.classify(context.message).command;
+          if (command === "iniciarbatalha" || command === "finalizarbatalha") {
+            const targetRef = context.message.mentions?.[0];
+            if (targetRef) {
+              const target = await playerRegistration.resolvePlayer({
+                provider: context.message.provider,
+                externalId: targetRef,
+              });
+              if (target.ok && (await legacyBoundary.hasOpenV4Subject(target.value.playerId)))
+                return ok(null);
+            }
+          }
+          const quote = context.message.replyToExternalMessageId;
+          if (
+            player === null &&
+            quote !== null &&
+            context.message.provider === "baileys" &&
+            (await legacyBoundary.isExpeditionQuote(context.message.senderRef, quote))
+          )
+            return ok(null);
+          const legacyAction =
+            command === null
+              ? context.message.replyToExternalMessageId !== null ||
+                context.message.chatRef === context.message.senderRef ||
+                (context.message.text?.includes("\n") ?? false)
+              : [
+                  "capturar",
+                  "fugir",
+                  "movimento",
+                  "trocar",
+                  "batalhar",
+                  "iniciarbatalha",
+                  "assumir",
+                  "automatico",
+                  "desistir",
+                  "pokemart",
+                  "comprar",
+                  "vender",
+                  "centropokemon",
+                  "curar",
+                  "pc",
+                  "depositar",
+                  "retirar",
+                  "organizar",
+                  "sair",
+                ].includes(command);
+          if (player === null && legacyAction) {
+            const owner = await playerRegistration.resolvePlayer({
+              provider: context.message.provider,
+              externalId: context.message.senderRef,
+            });
+            if (owner.ok && (await legacyBoundary.hasOpenV4Subject(owner.value.playerId)))
+              return ok(null);
+          }
+          const result = await withExpeditionAudience(player, run);
+          if (
+            !player ||
+            !result.ok ||
+            result.value === null ||
+            router.classify(context.message).command !== "explorar"
+          )
+            return result;
+          const outgoing = [];
+          for (const message of result.value.outgoing) {
+            const recipient =
+              message.destinationRef === context.message.senderRef
+                ? player
+                : await expeditionPlayerFor({
+                    ...context.message,
+                    senderRef: message.destinationRef,
+                  });
+            if (recipient)
+              outgoing.push({
+                ...message,
+                payload: { ...message.payload, expeditionAudience: recipient },
+              });
+          }
+          return ok({ ...result.value, outgoing });
+        }
+      : undefined,
   );
 
   return {
@@ -1225,14 +1550,15 @@ export function createOperationalMessagingComposition(
     onMembership: (event) => receptionMembership.handle(event),
     admitCommand: (message) => router.admitsCommand(message),
     admitFreeform: async (message) =>
-      isOfflineExpeditionReply(message) ||
+      (isOfflineExpeditionReply(message) &&
+        (!operationalPlay || (await expeditionPlayerFor(message)) !== null)) ||
       (await competitiveSpawn.admits(message)) ||
       (await registrationConversationResolver.admits(message)) ||
       worldServiceConversationResolver.admits(message),
     admitRuntimeCommand: async (message) => {
       if (!router.admitsCommand(message)) return false;
       const command = router.classify(message).command;
-      if (command === null) return false;
+      if (command === null || !(await admitsExpeditionPreview(message, command))) return false;
 
       const group = await community.resolveChat({
         provider: message.provider,
@@ -1268,7 +1594,8 @@ export function createOperationalMessagingComposition(
         return receptionConversationResolver.admits(message);
       }
       return (
-        isOfflineExpeditionReply(message) ||
+        (isOfflineExpeditionReply(message) &&
+          (!operationalPlay || (await expeditionPlayerFor(message)) !== null)) ||
         (await competitiveSpawn.admits(message)) ||
         (await registrationConversationResolver.admits(message)) ||
         worldServiceConversationResolver.admits(message)
@@ -1308,6 +1635,9 @@ export function createOperationalOutboxWorker(
   adapter: OutboundMessageAdapter,
   /** Staging injection only. The active WhatsApp runtime passes no hook. */
   postSentHook?: OutboxPostSentHook,
+  permitsOperationalDelivery?: (
+    message: import("../modules/messaging/contracts.js").PendingOutboxMessage,
+  ) => Promise<boolean>,
 ): OutboxWorker {
   const registrationReviewPreparation = new RegistrationReviewDeliveryPreparation({
     provider: "baileys",
@@ -1339,6 +1669,8 @@ export function createOperationalOutboxWorker(
   const deliveryPreparation: OutboxDeliveryPreparation = {
     prepare: async (message) => {
       if (message.channel === "INTERNAL") return message;
+      if (permitsOperationalDelivery && !(await permitsOperationalDelivery(message)))
+        throw new OutboxDeliveryDenied("V4 delivery denied");
       await registrationReviewPreparation.prepare(message);
       await worldServicePromptPreparation.prepare(message);
       await adminBatchPreviewPreparation.prepare(message);
@@ -1350,6 +1682,16 @@ export function createOperationalOutboxWorker(
     messagingRepository,
     [adapter, internalCaptureResultAdapter],
     {
+      ...(permitsOperationalDelivery
+        ? {
+            quarantinePayloadKeys: [
+              "expeditionAudience",
+              "expeditionSearch",
+              "expeditionNavigation",
+              "expeditionMenu",
+            ],
+          }
+        : {}),
       batchSize: 50,
       staleAfterMs: 30_000,
       maxAttempts: 8,
@@ -1357,13 +1699,90 @@ export function createOperationalOutboxWorker(
       maxBackoffMs: 60_000,
       // Only the isolated post-SENT integration opts into quarantine:
       // never retry a delivery whose outcome is uncertain after adapter.send.
-      ...(postSentHook === undefined ? {} : { quarantineUnknownDelivery: true }),
+      ...(postSentHook === undefined || permitsOperationalDelivery
+        ? {}
+        : { quarantineUnknownDelivery: true }),
     },
     deliveryPreparation,
     postSentHook,
   );
 }
 
+export function createOperationalExpeditionDelivery(
+  options: Pick<
+    OperationalWhatsAppRuntimeOptions,
+    "pool" | "expeditionPreview" | "encounterRngConfig"
+  >,
+  reportFailure: ConstructorParameters<typeof ExpeditionSearchPostSentHook>[1],
+  combiningCount = 0,
+) {
+  const play = options.expeditionPreview?.playSecret !== undefined;
+  const permitsDelivery = async (
+    message: Pick<
+      import("../modules/messaging/contracts.js").PendingOutboxMessage,
+      "payload" | "destinationRef"
+    >,
+  ) => {
+    const anchor = message.payload.expeditionSearch ?? message.payload.expeditionNavigation;
+    const actor =
+      message.payload.expeditionAudience ??
+      (anchor && typeof anchor === "object" && "playerId" in anchor ? anchor.playerId : undefined);
+    if (actor === undefined)
+      return anchor === undefined && message.payload.expeditionMenu === undefined;
+    if (
+      !play ||
+      typeof actor !== "string" ||
+      !options.expeditionPreview!.allowedPlayerIds.has(actor as never)
+    )
+      return false;
+    const result = await options.pool.query(
+      "SELECT 1 FROM player_identities i JOIN player_access a ON a.player_id=i.player_id AND a.status='ACTIVE' JOIN players p ON p.id=i.player_id AND p.status='ACTIVE' WHERE i.player_id=$1 AND i.provider='baileys' AND i.status='ACTIVE' AND i.external_id=$2",
+      [actor, message.destinationRef],
+    );
+    return result.rowCount === 1;
+  };
+  const rng = options.encounterRngConfig;
+  const hook =
+    play && rng
+      ? new ExpeditionSearchPostSentHook(
+          new ExpeditionSearchEngagementAfterSent(
+            new PostgresExpeditionSearchSentProof(options.pool),
+            new EncounterService(
+              new PostgresEncounterRepository(options.pool),
+              new AesEncounterSeedProvider(rng.encryptionKey, rng.encryptionKeyVersion),
+              new SystemClock(),
+              { enabled: true, reason: null },
+            ),
+          ),
+          reportFailure,
+          new PostgresExpeditionReadOnlyMenuIssuer(options.pool, "ACTIONABLE", combiningCount),
+        )
+      : undefined;
+  const authorizedHook = hook && {
+    onFailure: hook.onFailure.bind(hook),
+    afterSent: async (message: Parameters<typeof hook.afterSent>[0]) => {
+      const anchor = message.payload.expeditionSearch;
+      if (
+        !anchor ||
+        typeof anchor !== "object" ||
+        !("playerId" in anchor) ||
+        typeof anchor.playerId !== "string" ||
+        !(await permitsDelivery(message))
+      )
+        return;
+      await withExpeditionAudience(anchor.playerId, () => hook.afterSent(message));
+    },
+  };
+  const recovery =
+    authorizedHook &&
+    new PostgresExpeditionPostSentRecovery(
+      options.pool,
+      authorizedHook,
+      options.expeditionPreview?.allowedPlayerIds,
+    );
+
+  return { authorizedHook, permitsDelivery, recovery };
+}
 export function createOperationalWhatsAppRuntime(
   options: OperationalWhatsAppRuntimeOptions,
 ): WhatsAppMessagingRuntime {
@@ -1374,6 +1793,16 @@ export function createOperationalWhatsAppRuntime(
     options.pveBattleConfig ?? null,
     options.hubPublicUrl ?? null,
     options.fishingDayTimeZone ?? process.env.FISHING_DAY_TIME_ZONE ?? null,
+    options.expeditionPreview?.timeZone ?? null,
+    false,
+    null,
+    false,
+    false,
+    false,
+    false,
+    0,
+    options.expeditionPreview ?? null,
+    true,
   );
   const messagingRepository = new PostgresMessagingRepository(options.pool);
   const messaging = new MessagingService(messagingRepository, composition.router, 30_000);
@@ -1410,7 +1839,17 @@ export function createOperationalWhatsAppRuntime(
     },
   });
 
-  const outboxWorker = createOperationalOutboxWorker(options.pool, messagingRepository, adapter);
+  const { authorizedHook, permitsDelivery, recovery } = createOperationalExpeditionDelivery(
+    options,
+    (failure) => options.logger.log("WARN", "expedition.post_sent.failed", failure),
+  );
+  const outboxWorker = createOperationalOutboxWorker(
+    options.pool,
+    messagingRepository,
+    adapter,
+    authorizedHook,
+    permitsDelivery,
+  );
 
   return new WhatsAppMessagingRuntime(adapter, messaging, outboxWorker, {
     admitCommand: composition.admitRuntimeCommand,
@@ -1422,7 +1861,10 @@ export function createOperationalWhatsAppRuntime(
         errorKind: errorKind(error),
       });
     },
-    beforeOutboxFlush: composition.runMaintenance,
+    beforeOutboxFlush: async () => {
+      await composition.runMaintenance();
+      await recovery?.runOnce();
+    },
     onIncomingProcessingFailure: ({ stage, errorCode, correlationId }) => {
       options.logger.log("ERROR", "whatsapp.inbound.processing_failed", {
         stage,

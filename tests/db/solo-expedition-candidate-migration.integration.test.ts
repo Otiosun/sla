@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { readFile, realpath } from "node:fs/promises";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadMigrations, runMigrations } from "../../src/platform/db/migrations.js";
@@ -13,9 +13,20 @@ const parsed = (() => {
   }
 })();
 
+const alternatePort = process.env.POKEMON_TEST_POSTGRES_PORT;
+const expectedDataDirectory = process.env.POKEMON_TEST_POSTGRES_DATA_DIRECTORY;
+const portAllowed =
+  alternatePort === undefined
+    ? process.env.CI === "true" && parsed?.port === "5432"
+    : /^[1-9][0-9]{0,4}$/u.test(alternatePort) &&
+      Number(alternatePort) <= 65535 &&
+      alternatePort !== "5432" &&
+      parsed?.port === alternatePort &&
+      !!expectedDataDirectory;
+
 const isolated =
   parsed?.hostname === "127.0.0.1" &&
-  parsed?.port === "5432" &&
+  portAllowed &&
   parsed?.pathname === "/postgres" &&
   process.env.APP_ENV === "test" &&
   process.env.NODE_ENV === "test" &&
@@ -28,6 +39,7 @@ suite("candidate 0080 schema reversible only in disposable PG18", () => {
   const dbName = "pokemon_cand_0080_" + randomUUID().replaceAll("-", "");
   let admin: Pool;
   let pool: Pool;
+  let created = false;
   let candidate = "";
   let draft = "";
 
@@ -35,7 +47,20 @@ suite("candidate 0080 schema reversible only in disposable PG18", () => {
     const adminUrl = new URL(sourceUrl);
     adminUrl.pathname = "/postgres";
     admin = new Pool({ connectionString: adminUrl.toString(), max: 1 });
+    if (alternatePort !== undefined && expectedDataDirectory !== undefined) {
+      const result = await admin.query<{ directory: string; port: number }>(
+        "SELECT current_setting('data_directory') AS directory, inet_server_port() AS port",
+      );
+      const server = result.rows[0];
+      if (
+        server?.port !== Number(alternatePort) ||
+        (await realpath(server.directory)) !== (await realpath(expectedDataDirectory))
+      ) {
+        throw new Error("Configured PostgreSQL does not match the disposable cluster");
+      }
+    }
     await admin.query('CREATE DATABASE "' + dbName + '"');
+    created = true;
     const dbUrl = new URL(sourceUrl);
     dbUrl.pathname = "/" + dbName;
     pool = new Pool({ connectionString: dbUrl.toString(), max: 2 });
@@ -51,14 +76,14 @@ suite("candidate 0080 schema reversible only in disposable PG18", () => {
 
   afterAll(async () => {
     if (pool !== undefined) await pool.end();
-    if (admin !== undefined) {
+    if (created) {
       await admin.query(
         "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname=$1 AND pid <> pg_backend_pid()",
         [dbName],
       );
       await admin.query('DROP DATABASE IF EXISTS "' + dbName + '"');
-      await admin.end();
     }
+    await admin?.end();
   }, 30_000);
 
   it("keeps 0080 out of the active migrator and identical to staging", async () => {

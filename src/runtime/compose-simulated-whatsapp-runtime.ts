@@ -5,29 +5,36 @@ import {
   SimulatedWhatsAppAdapter,
   type SimulatedWhatsAppAdapterOptions,
 } from "../adapters/whatsapp/simulated-whatsapp-adapter.js";
+import { EncounterService } from "../modules/encounter/service.js";
+import { ExpeditionSearchEngagementAfterSent } from "../modules/exploration/expedition-search-engagement-after-sent.js";
+import { ExpeditionSearchPostSentHook } from "../modules/exploration/expedition-search-post-sent-hook.js";
 import type { IncomingMessage } from "../modules/messaging/contracts.js";
 import { MessagingService } from "../modules/messaging/service.js";
-import { ExpeditionSearchPostSentHook } from "../modules/exploration/expedition-search-post-sent-hook.js";
-import { ExpeditionSearchEngagementAfterSent } from "../modules/exploration/expedition-search-engagement-after-sent.js";
-import { EncounterService } from "../modules/encounter/service.js";
-import { PostgresEncounterRepository } from "../platform/encounter/postgres-encounter-repository.js";
-import { AesEncounterSeedProvider } from "../platform/rng/encrypted-seed-provider.js";
+import type { WorldServiceMediaCatalog } from "../modules/world-services/whatsapp-handlers.js";
 import { SystemClock } from "../platform/clock/index.js";
-import { PostgresExpeditionSearchSentProof } from "../platform/exploration/postgres-expedition-search-sent-proof.js";
+import { PostgresEncounterRepository } from "../platform/encounter/postgres-encounter-repository.js";
 import { PostgresExpeditionOfflineActionableMenuIssuer } from "../platform/exploration/postgres-expedition-offline-actionable-menu-issuer.js";
 import { PostgresExpeditionPostSentRecovery } from "../platform/exploration/postgres-expedition-post-sent-recovery.js";
-import type { WorldServiceMediaCatalog } from "../modules/world-services/whatsapp-handlers.js";
+import { PostgresExpeditionSearchSentProof } from "../platform/exploration/postgres-expedition-search-sent-proof.js";
 import { PostgresMessagingRepository } from "../platform/messaging/postgres-messaging-repository.js";
+import { AesEncounterSeedProvider } from "../platform/rng/encrypted-seed-provider.js";
 import type { PveBattleRuntimeConfig } from "./compose-pve-battle-runtime.js";
 import {
+  createOperationalExpeditionDelivery,
   createOperationalMessagingComposition,
   createOperationalOutboxWorker,
   type OperationalMessagingComposition,
 } from "./compose-whatsapp-runtime.js";
 import type { EncounterRngRuntimeConfig } from "./encounter-rng-runtime-config.js";
+import type { OperationalExpeditionPreview } from "./operational-expedition-preview.js";
 
 export interface OperationalSimulatedWhatsAppRuntimeOptions {
   readonly pool: Pool;
+  readonly operationalExpeditionPreview?: OperationalExpeditionPreview | null;
+  readonly fishingDayTimeZone?: string | null;
+  /** Isolated candidate 0081 only; never starts a live WhatsApp client. */
+  readonly combatScenesEnabled?: boolean;
+  readonly explorationReadMoreCombiningCount?: number;
   readonly encounterRngConfig?: EncounterRngRuntimeConfig;
   readonly pveBattleConfig?: PveBattleRuntimeConfig;
   readonly worldServiceMedia?: WorldServiceMediaCatalog;
@@ -74,13 +81,17 @@ export function createOperationalSimulatedWhatsAppRuntime(
     options.worldServiceMedia ?? null,
     options.pveBattleConfig ?? null,
     options.hubPublicUrl ?? null,
-    null,
-    options.explorationPreviewTimeZone ?? null,
+    options.fishingDayTimeZone ?? null,
+    options.operationalExpeditionPreview?.timeZone ?? options.explorationPreviewTimeZone ?? null,
     options.explorationStagingPreparationEnabled === true,
     options.explorationStagingSearchSecret ?? null,
     options.explorationOfflineChoicesEnabled === true,
     options.explorationStagingResourcesEnabled === true,
     options.explorationStagingTrailEnabled === true,
+    options.combatScenesEnabled === true,
+    options.explorationReadMoreCombiningCount ?? 0,
+    options.operationalExpeditionPreview ?? null,
+    options.operationalExpeditionPreview !== undefined,
   );
   const messagingRepository = new PostgresMessagingRepository(options.pool);
   const messaging = new MessagingService(messagingRepository, composition.router, 30_000);
@@ -97,6 +108,20 @@ export function createOperationalSimulatedWhatsAppRuntime(
     readonly correlationId: string;
     readonly errorCode: string;
   }> = [];
+  const operationalDelivery =
+    options.operationalExpeditionPreview === undefined
+      ? undefined
+      : createOperationalExpeditionDelivery(
+          {
+            pool: options.pool,
+            expeditionPreview: options.operationalExpeditionPreview,
+            ...(options.encounterRngConfig
+              ? { encounterRngConfig: options.encounterRngConfig }
+              : {}),
+          },
+          (failure) => expeditionPostSentFailures.push(failure),
+          options.explorationReadMoreCombiningCount,
+        );
   const afterSent =
     options.explorationOfflineChoicesEnabled === true && options.encounterRngConfig !== undefined
       ? new ExpeditionSearchPostSentHook(
@@ -113,7 +138,10 @@ export function createOperationalSimulatedWhatsAppRuntime(
             ),
           ),
           (failed) => expeditionPostSentFailures.push(failed),
-          new PostgresExpeditionOfflineActionableMenuIssuer(options.pool),
+          new PostgresExpeditionOfflineActionableMenuIssuer(
+            options.pool,
+            options.explorationReadMoreCombiningCount ?? 0,
+          ),
         )
       : undefined;
   const recovery =
@@ -124,7 +152,8 @@ export function createOperationalSimulatedWhatsAppRuntime(
     options.pool,
     messagingRepository,
     adapter,
-    afterSent,
+    operationalDelivery?.authorizedHook ?? afterSent,
+    operationalDelivery?.permitsDelivery,
   );
 
   const runtime = new WhatsAppMessagingRuntime(adapter, messaging, outboxWorker, {
@@ -134,6 +163,7 @@ export function createOperationalSimulatedWhatsAppRuntime(
     beforeOutboxFlush: async () => {
       await composition.runMaintenance();
       await recovery?.runOnce();
+      await operationalDelivery?.recovery?.runOnce();
     },
     ...(options.onIncomingProcessingFailure === undefined
       ? {}

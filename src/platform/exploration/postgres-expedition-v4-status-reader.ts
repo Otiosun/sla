@@ -1,11 +1,12 @@
 import type { Pool } from "pg";
-import type { PlayerId } from "../../shared-kernel/ids.js";
-import type { ExpeditionV4StatusFacts } from "../../modules/exploration/expedition-v4-readonly-whatsapp.js";
 import type { ExpeditionPeriod } from "../../modules/exploration/expedition-clock.js";
 import type {
-  ExpeditionPhase,
   ExpeditionEndReason,
+  ExpeditionPhase,
 } from "../../modules/exploration/expedition-state.js";
+import type { ExpeditionV4StatusFacts } from "../../modules/exploration/expedition-v4-readonly-whatsapp.js";
+import type { MessageHandlerContext } from "../../modules/messaging/contracts.js";
+import type { PlayerId } from "../../shared-kernel/ids.js";
 import { withTransaction } from "../db/transaction.js";
 
 interface ExpeditionRow {
@@ -27,6 +28,7 @@ interface ExpeditionRow {
 export interface ExpeditionV4FactualSummary {
   readonly period: ExpeditionPeriod;
   readonly endReason: "VOLUNTARY" | "CLOCK" | "BLACKOUT";
+  readonly blackoutNeedsStaff?: true;
   readonly elapsedMinutes: number;
   readonly searches: number;
   readonly noSignal: number;
@@ -43,6 +45,17 @@ export interface ExpeditionV4FactualSummary {
  */
 export class PostgresExpeditionV4StatusReader {
   public constructor(private readonly pool: Pool) {}
+
+  public async isRetry(context: MessageHandlerContext): Promise<boolean> {
+    const { provider, externalMessageId, senderRef } = context.message;
+    const result = await this.pool.query<{ attempts: number }>(
+      `SELECT attempts FROM inbox_messages
+       WHERE id=$1 AND status='PROCESSING' AND provider=$2 AND external_message_id=$3
+         AND normalized_payload->>'senderRef'=$4`,
+      [context.inboxMessageId, provider, externalMessageId, senderRef],
+    );
+    return result.rows[0]?.attempts !== 1;
+  }
 
   public async read(playerId: PlayerId, weekKey: string): Promise<ExpeditionV4StatusFacts> {
     return withTransaction(
@@ -100,6 +113,7 @@ export class PostgresExpeditionV4StatusReader {
         const result = await client.query<{
           period: ExpeditionPeriod;
           end_reason: "VOLUNTARY" | "CLOCK" | "BLACKOUT";
+          blackout_needs_staff: boolean;
           elapsed_minutes: number;
           searches: number;
           no_signal: number;
@@ -110,6 +124,8 @@ export class PostgresExpeditionV4StatusReader {
           `SELECT expedition.period,
                   expedition.end_reason,
                   expedition.elapsed_minutes,
+                  EXISTS (SELECT 1 FROM solo_expedition_receipts receipt WHERE receipt.expedition_id=expedition.id
+                    AND receipt.result @> '{"blackoutNeedsStaff":true}'::jsonb) AS blackout_needs_staff,
                   COUNT(outcome.id)::int AS searches,
                   COUNT(outcome.id) FILTER (WHERE outcome.kind='NO_SIGNAL')::int AS no_signal,
                   COUNT(outcome.id) FILTER (WHERE outcome.kind='TRAIL')::int AS trail,
@@ -137,6 +153,7 @@ export class PostgresExpeditionV4StatusReader {
           : {
               period: row.period,
               endReason: row.end_reason,
+              ...(row.blackout_needs_staff ? { blackoutNeedsStaff: true as const } : {}),
               elapsedMinutes: row.elapsed_minutes,
               searches: row.searches,
               noSignal: row.no_signal,

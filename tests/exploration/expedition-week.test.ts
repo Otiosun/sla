@@ -1,10 +1,32 @@
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_EXPEDITION_TIME_ZONE,
   expeditionWeekKey,
   expeditionWeeklyAdmission,
 } from "../../src/modules/exploration/expedition-week.js";
 
 describe("solo expedition calendar and weekly admission", () => {
+  it("defaults to the approved Sao Paulo Monday midnight and permits explicit overrides", () => {
+    expect(DEFAULT_EXPEDITION_TIME_ZONE).toBe("America/Sao_Paulo");
+    const beforeReset = new Date("2026-11-09T02:59:59.999Z");
+    const atReset = new Date("2026-11-09T03:00:00.000Z");
+    expect(expeditionWeekKey(beforeReset)).toBe("2026-11-02");
+    expect(expeditionWeekKey(atReset)).toBe("2026-11-09");
+    expect(expeditionWeekKey(beforeReset, "UTC")).toBe("2026-11-09");
+    expect(expeditionWeekKey(beforeReset, "America/Sao_Paulo")).toBe("2026-11-02");
+  });
+  it("preserves three historical consumptions and makes three more available", () => {
+    expect(expeditionWeeklyAdmission(3, "NONE")).toEqual({
+      remaining: 3,
+      canPrepare: true,
+      canConsumeFirstAction: false,
+      resumeExisting: false,
+      canContinue: false,
+    });
+    for (let consumed = 0; consumed < 6; consumed += 1) {
+      expect(expeditionWeeklyAdmission(consumed, "PREPARING").canConsumeFirstAction).toBe(true);
+    }
+  });
   it("resets at the configured region's Monday 00:00, not host UTC midnight", () => {
     expect(expeditionWeekKey(new Date("2026-10-26T02:59:59Z"), "America/Maceio")).toBe(
       "2026-10-19",
@@ -32,28 +54,28 @@ describe("solo expedition calendar and weekly admission", () => {
 
   it("distinguishes preparing, first timed action, and continued active play", () => {
     expect(expeditionWeeklyAdmission(0, "NONE")).toEqual({
-      remaining: 3,
+      remaining: 6,
       canPrepare: true,
       canConsumeFirstAction: false,
       resumeExisting: false,
       canContinue: false,
     });
     expect(expeditionWeeklyAdmission(0, "PREPARING")).toEqual({
-      remaining: 3,
+      remaining: 6,
       canPrepare: false,
       canConsumeFirstAction: true,
       resumeExisting: true,
       canContinue: false,
     });
-    expect(expeditionWeeklyAdmission(2, "PREPARING").remaining).toBe(1);
-    expect(expeditionWeeklyAdmission(3, "PREPARING")).toEqual({
+    expect(expeditionWeeklyAdmission(5, "PREPARING").remaining).toBe(1);
+    expect(expeditionWeeklyAdmission(6, "PREPARING")).toEqual({
       remaining: 0,
       canPrepare: false,
       canConsumeFirstAction: false,
       resumeExisting: true,
       canContinue: false,
     });
-    expect(expeditionWeeklyAdmission(3, "ACTIVE")).toEqual({
+    expect(expeditionWeeklyAdmission(6, "ACTIVE")).toEqual({
       remaining: 0,
       canPrepare: false,
       canConsumeFirstAction: false,
@@ -63,7 +85,7 @@ describe("solo expedition calendar and weekly admission", () => {
   });
 
   it("refuses invalid or manipulated counters rather than silently clamping them", () => {
-    for (const count of [-1, 4, 1.5, Number.NaN, Number.MAX_SAFE_INTEGER + 1]) {
+    for (const count of [-1, 7, 1.5, Number.NaN, Number.MAX_SAFE_INTEGER + 1]) {
       expect(() => expeditionWeeklyAdmission(count, "NONE")).toThrow(RangeError);
     }
   });

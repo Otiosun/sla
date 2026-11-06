@@ -1,11 +1,11 @@
-import { randomBytes } from "node:crypto";
+import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import assert from "node:assert/strict";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 const current = dirname(fileURLToPath(import.meta.url));
 const script = join(current, "../../scripts/operations/backup-envelope.mjs");
@@ -42,7 +42,9 @@ test("offline envelope encrypts and authenticates without exposing backup keys",
     assert.equal(vault.subarray(0, 8).toString("ascii"), "PBV4GCM1");
     assert.equal(vault.length, plain.length + 44);
     assert.equal(vault.includes(plain.subarray(0, 20)), false);
-    assert.equal((await stat(output)).mode & 0o777, 0o600);
+    // Windows stat mode bits do not represent NTFS ACLs. This assertion proves
+    // POSIX privacy only; Windows directory ACLs remain an installation gate.
+    if (process.platform !== "win32") assert.equal((await stat(output)).mode & 0o777, 0o600);
 
     const denied = run("decrypt", output, restore, key);
     assert.notEqual(denied.status, 0);
@@ -55,7 +57,7 @@ test("offline envelope encrypts and authenticates without exposing backup keys",
     const decoded = run("decrypt", output, restore, key, true);
     assert.equal(decoded.status, 0, decoded.stderr);
     assert.deepEqual(await readFile(restore), plain);
-    assert.equal((await stat(restore)).mode & 0o777, 0o600);
+    if (process.platform !== "win32") assert.equal((await stat(restore)).mode & 0o777, 0o600);
 
     const overwrite = run("decrypt", output, restore, key, true);
     assert.notEqual(overwrite.status, 0);

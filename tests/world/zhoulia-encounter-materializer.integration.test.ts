@@ -1,8 +1,11 @@
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { Client, Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ZHOULIA_TYPED_CONTENT_V1 } from "../../src/modules/world/zhoulia-content.js";
+import { choosePublishedSearchOutcome } from "../../src/platform/exploration/expedition-published-outcome-policy.js";
+import { choosePublishedResource } from "../../src/platform/exploration/postgres-expedition-v4-resources.js";
 import { PostgresZhouliaDraftStructureImporter } from "../../src/platform/world/postgres-zhoulia-draft-importer.js";
 import { PostgresZhouliaEncounterDraftMaterializer } from "../../src/platform/world/postgres-zhoulia-encounter-materializer.js";
 
@@ -320,5 +323,117 @@ describe.skipIf(!enabled)("Zhoulia encounter DRAFT materializer", () => {
 
     const materializer = new PostgresZhouliaEncounterDraftMaterializer(pool);
     await expect(materializer.materialize({ releaseId })).rejects.toThrow(/DRAFT/);
+  });
+  it("materializes the approved isolated V4 release content and exact outcome distributions", async () => {
+    const releaseId = await seedDraft();
+    await pool.query(await readFile("db/candidates/0080_solo_exploration_v4.sql", "utf8"));
+    await pool.query(await readFile("db/candidates/0083_expedition_reports.sql", "utf8"));
+    const imported = await new PostgresZhouliaDraftStructureImporter(pool).import({ releaseId });
+    const materializer = new PostgresZhouliaEncounterDraftMaterializer(pool);
+    await materializer.materialize({ releaseId });
+    await pool.query(
+      "INSERT INTO currency_definitions(id,slug,display_name) VALUES($1,'pokedollar','Pokédollar')",
+      [randomUUID()],
+    );
+    for (const [slug, kind] of [
+      ["poke-ball", "BALL"],
+      ["potion", "MEDICINE"],
+    ] as const) {
+      const item = randomUUID();
+      await pool.query("INSERT INTO items(id,slug) VALUES($1,$2)", [item, slug]);
+      await pool.query(
+        "INSERT INTO item_revisions(id,content_release_id,item_id,display_name,item_kind) VALUES($1,$2,$3,$4,$5)",
+        [randomUUID(), releaseId, item, slug, kind],
+      );
+    }
+    await expect(
+      materializer.materializeApprovedV4({ releaseId, reservedSpeciesSlugs: ["gastly"] }),
+    ).rejects.toThrow("reserved species");
+    const input = { releaseId, reservedSpeciesSlugs: [] };
+    expect(await materializer.materializeApprovedV4(input)).toMatchObject({
+      tablesMaterialized: 6,
+      entriesMaterialized: 39,
+    });
+    expect(await materializer.materializeApprovedV4(input)).toMatchObject({
+      tablesMaterialized: 6,
+      entriesMaterialized: 39,
+    });
+    const pools = await pool.query(
+      `SELECT area.slug AS area, pool.slug, array_agg(species.slug ORDER BY species.slug) AS species,
+         min(entry.weight)::int AS weight, min(entry.min_level) AS lo, max(entry.max_level) AS hi
+       FROM encounter_table_revisions revision JOIN encounter_tables pool ON pool.id=revision.encounter_table_id
+       JOIN areas area ON area.id=pool.area_id JOIN encounter_entries entry ON entry.encounter_table_revision_id=revision.id
+       JOIN pokemon_forms form ON form.id=entry.form_id JOIN pokemon_species species ON species.id=form.species_id
+       WHERE revision.content_release_id=$1 AND revision.active AND entry.active
+       GROUP BY area.slug,pool.slug ORDER BY area.slug,pool.slug`,
+      [releaseId],
+    );
+    expect(pools.rows).toHaveLength(6);
+    expect(
+      pools.rows.find((row) => row.area === "campos-de-yun" && row.slug === "night-land"),
+    ).toEqual({
+      area: "campos-de-yun",
+      slug: "night-land",
+      species: ["gastly", "hoothoot", "poochyena", "rattata", "roselia", "shuppet", "zubat"],
+      weight: 100,
+      lo: 4,
+      hi: 8,
+    });
+    expect(
+      (
+        await pool.query(
+          "SELECT access_rule->>'explorationMinutes' AS minutes FROM area_connection_revisions WHERE content_release_id=$1 AND active",
+          [releaseId],
+        )
+      ).rows,
+    ).toEqual([{ minutes: "30" }, { minutes: "30" }]);
+    const search = (
+      await pool.query(
+        "SELECT weights FROM solo_search_outcome_policies WHERE content_release_id=$1",
+        [releaseId],
+      )
+    ).rows;
+    const loot = (
+      await pool.query(
+        "SELECT entries FROM solo_resource_loot_policies WHERE content_release_id=$1",
+        [releaseId],
+      )
+    ).rows;
+    expect(search).toHaveLength(4);
+    expect(loot).toHaveLength(4);
+    expect(imported.directedConnectionCount).toBe(2);
+    expect(new Set(search.map((row) => JSON.stringify(row.weights))).size).toBe(1);
+    expect(new Set(loot.map((row) => JSON.stringify(row.entries))).size).toBe(1);
+    const searchCounts: Record<string, number> = {};
+    const lootCounts: Record<string, number> = {};
+    for (let roll = 0; roll < 10000; roll++) {
+      const outcome = choosePublishedSearchOutcome(search[0].weights, roll);
+      const resource = choosePublishedResource(loot[0].entries, roll);
+      if (!outcome.ok || !resource.ok) throw new Error("Invalid approved distribution");
+      const key =
+        resource.value.kind === "NONE"
+          ? "NONE"
+          : resource.value.itemId + ":" + resource.value.quantity;
+      searchCounts[outcome.value.kind] = (searchCounts[outcome.value.kind] ?? 0) + 1;
+      lootCounts[key] = (lootCounts[key] ?? 0) + 1;
+    }
+    expect(searchCounts).toEqual({ NO_SIGNAL: 5000, TRAIL: 2500, INCIDENTAL: 1500, DIRECT: 1000 });
+    expect(Object.values(lootCounts)).toEqual([7500, 1500, 700, 200, 100]);
+    const reward = (
+      await pool.query(
+        "SELECT config FROM solo_report_reward_policies WHERE content_release_id=$1",
+        [releaseId],
+      )
+    ).rows[0].config;
+    expect(reward.base).toEqual([{ kind: "MONEY", currencyId: expect.any(String), amount: "300" }]);
+    expect(reward.normal.map((entry: { weight: number }) => entry.weight)).toEqual([
+      4500, 3000, 1500, 1000,
+    ]);
+    expect(reward.highlight.map((entry: { weight: number }) => entry.weight)).toEqual([
+      6000, 2500, 1000, 500,
+    ]);
+    expect(
+      (await pool.query("SELECT status FROM content_releases WHERE id=$1", [releaseId])).rows,
+    ).toEqual([{ status: "DRAFT" }]);
   });
 });

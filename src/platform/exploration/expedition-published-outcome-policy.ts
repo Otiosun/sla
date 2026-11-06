@@ -1,21 +1,15 @@
 import { createHmac } from "node:crypto";
 import type { PoolClient } from "pg";
 import { z } from "zod";
-import type { ExpeditionSnapshot } from "../../modules/exploration/expedition-state.js";
 import { EXPEDITION_DURATION_MINUTES } from "../../modules/exploration/expedition-clock.js";
+import type { ExpeditionSnapshot } from "../../modules/exploration/expedition-state.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import type {
   SearchOutcomeDecision,
   SearchOutcomePolicy,
 } from "./expedition-search-outcome-effect.js";
 
-/**
- * The game design has approved the four CATEGORIES, not their probabilities.
- * The runtime MUST NOT supply defaults. A signed-off, PUBLISHED content
- * release needs to carry explicit weights per area + day/night.
- *
- * The table exists only in db/drafts. No WhatsApp handler invokes this policy.
- */
+/** Runtime reads explicit area/period weights from the active published release. */
 const weightsSchema = z
   .object({
     NO_SIGNAL: z.number().int().min(0).max(10_000),

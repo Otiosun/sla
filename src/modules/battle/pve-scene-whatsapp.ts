@@ -110,6 +110,7 @@ function reply(
   options: {
     readonly mentions?: readonly string[];
     readonly react?: boolean;
+    readonly resolved?: boolean;
   } = {},
 ): Result<MessageHandlerResult> {
   const mentions = options.mentions ?? [];
@@ -124,6 +125,7 @@ function reply(
         messageType: "TEXT",
         payload: {
           text,
+          ...(options.resolved === true ? { combatResolution: true } : {}),
           ...(mentions.length === 0 ? {} : { mentions }),
         },
         idempotencyKey: `${context.idempotencyKey}:battle`,
@@ -249,8 +251,8 @@ function moveReferenceMatches(
   return normalizeLookup(move.displayName) === normalized;
 }
 
-async function preflightPlayerMove(
-  dependencies: PveSceneDependencies,
+export async function preflightPlayerMove(
+  dependencies: Pick<PveSceneDependencies, "roster">,
   playerId: PlayerId,
   moveRef: string,
 ): Promise<Result<void>> {
@@ -370,7 +372,7 @@ async function moveSlotFor(
   return matches.length === 1 ? (matches[0]?.slotNo ?? null) : null;
 }
 
-async function actionFrom(
+export async function actionFrom(
   state: BattleState,
   actorParticipantId: string,
   intent: ReturnType<typeof parseSceneAction>,
@@ -501,7 +503,7 @@ function controlledRoster(
     .sort((left, right) => left.rosterPosition - right.rosterPosition);
 }
 
-function switchAction(
+export function switchAction(
   state: BattleState,
   controller: BattleParticipantController,
   controllers: readonly BattleParticipantController[],
@@ -1067,6 +1069,14 @@ export function createPveSceneRoutes(
       battleId = await dependencies.activeBattleId(playerId);
     }
 
+    if (
+      context.combatSceneAuthorization?.subjectKind === "BATTLE" &&
+      battleId !== context.combatSceneAuthorization.subjectId
+    ) {
+      return err(
+        appError("REVISION_CONFLICT", "O confronto autorizado pela Cena mudou. Consulte /batalha."),
+      );
+    }
     if (battleId === null) {
       if (dependencies.encounters === undefined) {
         return err(appError("NOT_FOUND", "Nenhuma batalha ou encontro ativo."));
@@ -1095,6 +1105,12 @@ export function createPveSceneRoutes(
       ) {
         const encounter = await dependencies.encounters.activeForPlayer(encounterPlayerId);
         if (!encounter.ok) return err(appError("NOT_FOUND", "Nenhum encontro ativo para fugir."));
+        if (
+          context.combatSceneAuthorization?.subjectKind === "ENCOUNTER" &&
+          (encounter.value.encounterId !== context.combatSceneAuthorization.subjectId ||
+            encounter.value.revision !== BigInt(context.combatSceneAuthorization.version))
+        )
+          return err(appError("REVISION_CONFLICT", "O encontro autorizado pela Cena mudou."));
         const fled = await dependencies.encounterWriter.flee({
           playerId: encounterPlayerId,
           encounterId: encounter.value.encounterId,
@@ -1137,6 +1153,12 @@ export function createPveSceneRoutes(
       if (encounter.value.battleId !== null) {
         battleId = encounter.value.battleId;
       } else {
+        if (
+          context.combatSceneAuthorization?.subjectKind === "ENCOUNTER" &&
+          (encounter.value.encounterId !== context.combatSceneAuthorization.subjectId ||
+            encounter.value.revision !== BigInt(context.combatSceneAuthorization.version))
+        )
+          return err(appError("REVISION_CONFLICT", "O encontro autorizado pela Cena mudou."));
         if (parsed.intent.type === "SWITCH") {
           return err(
             appError("FLOW_BLOCKED", "A battle has not started yet.", {
@@ -1267,6 +1289,13 @@ export function createPveSceneRoutes(
         }),
       );
     const controllers = await dependencies.controllers.listByBattle(battleId);
+    if (
+      context.combatSceneAuthorization?.subjectKind === "BATTLE" &&
+      state.value.version !== context.combatSceneAuthorization.version
+    )
+      return err(
+        appError("REVISION_CONFLICT", "O turno autorizado pela Cena mudou. Consulte /batalha."),
+      );
     const controller = activeController(
       state.value,
       controllers,
@@ -1382,6 +1411,7 @@ export function createPveSceneRoutes(
         return reply(context, summary.text, battleId, {
           mentions: summary.mentions,
           react: true,
+          resolved: true,
         });
       }
 
@@ -1470,6 +1500,7 @@ export function createPveSceneRoutes(
       return reply(context, summary.text, battleId, {
         mentions: summary.mentions,
         react: true,
+        resolved: true,
       });
     }
 
@@ -1491,6 +1522,7 @@ export function createPveSceneRoutes(
     return reply(context, summary.text, battleId, {
       mentions: summary.mentions,
       react: true,
+      resolved: true,
     });
   };
   const controllerRoute =

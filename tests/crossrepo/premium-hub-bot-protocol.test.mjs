@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { join, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
 import test from "node:test";
+import { pathToFileURL } from "node:url";
 import { PlayerPortalHttpHandler } from "../../dist/src/modules/player-portal/http-handler.js";
 
-const EXPECTED_HUB_COMMIT = "b997f1e6d2c5d5effced6e396ceca8607b8d34db";
+const EXPECTED_HUB_COMMIT = "edc5e315b8eb50b6d700437a8a2ea1ac364e0c7c";
 const UUID = "11111111-1111-4111-8111-111111111111";
 const CASE = "22222222-2222-4222-8222-222222222222";
 const SESSION_COOKIE = "__Host-pokemon_hub_session=synthetic-test-token";

@@ -456,6 +456,32 @@ export const ZHOULIA_TYPED_CONTENT_V1: ZhouliaContentBundle = {
   ],
 };
 
+const excludedInitialYunNightSpecies = new Set([
+  "pokemon.species.marshtomp",
+  "pokemon.species.nuzleaf",
+  "pokemon.species.quagsire",
+  "pokemon.species.gloom",
+]);
+
+export const ZHOULIA_APPROVED_V4_CONTENT: ZhouliaContentBundle = {
+  ...ZHOULIA_TYPED_CONTENT_V1,
+  areas: ZHOULIA_TYPED_CONTENT_V1.areas.map((area) => ({
+    ...area,
+    encounterPools: area.encounterPools
+      .filter((pool) => pool.identity !== "zhoulia.encounter-pool.vila-dos-arrozais.village-rare")
+      .map((pool) =>
+        pool.identity === "zhoulia.encounter-pool.campos-de-yun.night.land"
+          ? {
+              ...pool,
+              entries: pool.entries.filter(
+                (entry) => !excludedInitialYunNightSpecies.has(entry.speciesKey),
+              ),
+            }
+          : pool,
+      ),
+  })),
+};
+
 export function validateZhouliaContentBundle(bundle: ZhouliaContentBundle): void {
   if (bundle.schemaVersion !== 1) throw new Error("Unsupported Zhoulia content schema");
   if (bundle.bundleKey !== "zhoulia-v1") throw new Error("Unexpected Zhoulia bundle key");

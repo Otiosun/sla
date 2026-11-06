@@ -1,22 +1,29 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
-import type { ExpeditionPeriod } from "../../modules/exploration/expedition-clock.js";
 import { ConnectionAccessRuleSchema } from "../../modules/catalog/world-contracts.js";
-import type { TravelResult } from "../../modules/world/contracts.js";
+import {
+  EXPEDITION_WEEKLY_LIMIT,
+  type ExpeditionPeriod,
+} from "../../modules/exploration/expedition-clock.js";
+import { expeditionOperationAllowed } from "../../modules/exploration/expedition-runtime-audience.js";
 import {
   advanceExpedition,
   changeExpeditionPeriod,
-  endExpedition,
   type ExpeditionEndReason,
   type ExpeditionPhase,
   type ExpeditionSnapshot,
   type ExpeditionTransition,
+  endExpedition,
 } from "../../modules/exploration/expedition-state.js";
-import { expeditionWeekKey } from "../../modules/exploration/expedition-week.js";
+import {
+  DEFAULT_EXPEDITION_TIME_ZONE,
+  expeditionWeekKey,
+} from "../../modules/exploration/expedition-week.js";
+import type { TravelResult } from "../../modules/world/contracts.js";
+import type { PlayerId } from "../../shared-kernel/ids.js";
+import { type AppError, appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import type { Clock } from "../clock/index.js";
 import { withTransaction } from "../db/transaction.js";
-import type { PlayerId } from "../../shared-kernel/ids.js";
-import { appError, err, ok, type AppError, type Result } from "../../shared-kernel/result.js";
 
 /**
  * Staging-only V1.1 lifecycle persistence. It intentionally does not wire
@@ -69,6 +76,8 @@ export interface ExecuteExpeditionTravelInput {
 }
 
 export interface ExecuteSearchActionInput {
+  readonly replayOnly?: boolean;
+  readonly semanticKey?: string;
   readonly playerId: PlayerId;
   readonly expeditionId: string;
   readonly expectedRevision: bigint;
@@ -287,7 +296,7 @@ export class PostgresExpeditionRepository {
   public constructor(
     private readonly pool: Pool,
     private readonly clock: Clock,
-    private readonly timeZone: string,
+    private readonly timeZone: string = DEFAULT_EXPEDITION_TIME_ZONE,
   ) {
     // Validate configuration at composition time, not after consuming a slot.
     expeditionWeekKey(clock.now(), timeZone);
@@ -303,6 +312,8 @@ export class PostgresExpeditionRepository {
   }
 
   public async prepare(input: PrepareExpeditionInput): Promise<Result<StoredExpeditionTransition>> {
+    if (!expeditionOperationAllowed(input.playerId))
+      return err(appError("FLOW_BLOCKED", "Exploração indisponível para esta conta."));
     const validKey = validateKey(input.idempotencyKey);
     if (!validKey.ok) return validKey;
     if (input.period !== "DAY" && input.period !== "NIGHT") {
@@ -331,10 +342,10 @@ export class PostgresExpeditionRepository {
         "SELECT COUNT(*)::text AS count FROM solo_expeditions WHERE player_id=$1 AND consumed_week_key=$2::date",
         [input.playerId, week],
       );
-      if (Number(used.rows[0]?.count ?? "0") >= 3) {
+      if (Number(used.rows[0]?.count ?? "0") >= EXPEDITION_WEEKLY_LIMIT) {
         return err(
           appError("FLOW_BLOCKED", "Expedition weekly limit reached", {
-            userMessage: "Você já utilizou suas três expedições desta semana.",
+            userMessage: `Você já utilizou suas ${EXPEDITION_WEEKLY_LIMIT} expedições desta semana.`,
           }),
         );
       }
@@ -411,6 +422,8 @@ export class PostgresExpeditionRepository {
   public async advance(
     input: AdvanceStoredExpeditionInput,
   ): Promise<Result<StoredExpeditionTransition>> {
+    if (!expeditionOperationAllowed(input.playerId))
+      return err(appError("FLOW_BLOCKED", "Exploração indisponível para esta conta."));
     const validKey = validateKey(input.idempotencyKey);
     if (!validKey.ok) return validKey;
     const inputFingerprint = fingerprint([
@@ -465,6 +478,8 @@ export class PostgresExpeditionRepository {
   public async executeTravel(
     input: ExecuteExpeditionTravelInput,
   ): Promise<Result<StoredExpeditionTransition>> {
+    if (!expeditionOperationAllowed(input.playerId))
+      return err(appError("FLOW_BLOCKED", "Exploração indisponível para esta conta."));
     const validKey = validateKey(input.idempotencyKey);
     if (!validKey.ok) return validKey;
     if (!/^[a-f0-9-]{36}$/iu.test(input.destinationAreaId) || input.expectedWorldRevision < 0n) {
@@ -491,6 +506,13 @@ export class PostgresExpeditionRepository {
         }
         const original = await lockedExpedition(client, input.playerId, input.expeditionId);
         if (original === null) return unavailable();
+        const openVisit = await client.query(
+          "SELECT 1 FROM world_service_sessions WHERE player_id=$1 AND state='OPEN' LIMIT 1",
+          [input.playerId],
+        );
+        if (openVisit.rowCount !== 0) {
+          return err(appError("FLOW_BLOCKED", "Saia da instalação antes de viajar."));
+        }
         const connections = await client.query<{
           release_id: string;
           access_rule: unknown;
@@ -621,11 +643,7 @@ export class PostgresExpeditionRepository {
   public async executeResourceSearch(
     input: ExecuteSearchActionInput,
   ): Promise<Result<StoredSearchActionTransition>> {
-    if (
-      process.env.APP_ENV !== "test" ||
-      process.env.NODE_ENV !== "test" ||
-      process.env.WHATSAPP_ENABLED !== "false"
-    ) {
+    if (!expeditionOperationAllowed(input.playerId)) {
       return err(appError("FLOW_BLOCKED", "Resource search requires isolated development"));
     }
     return this.executeTimedEffect(input, "ACTION_RESOURCE_SEARCH", 60);
@@ -640,9 +658,7 @@ export class PostgresExpeditionRepository {
     input: ExecuteSearchActionInput & { readonly sourceOutcomeId: string },
   ): Promise<Result<StoredSearchActionTransition>> {
     if (
-      process.env.APP_ENV !== "test" ||
-      process.env.NODE_ENV !== "test" ||
-      process.env.WHATSAPP_ENABLED !== "false" ||
+      !expeditionOperationAllowed(input.playerId) ||
       !/^[a-f0-9-]{36}$/iu.test(input.sourceOutcomeId)
     ) {
       return err(appError("FLOW_BLOCKED", "Following trails requires isolated development"));
@@ -662,6 +678,8 @@ export class PostgresExpeditionRepository {
     minutes: 15 | 30 | 60,
     sourceOutcomeId?: string,
   ): Promise<Result<StoredSearchActionTransition>> {
+    if (!expeditionOperationAllowed(input.playerId))
+      return err(appError("FLOW_BLOCKED", "Exploração indisponível para esta conta."));
     const validKey = validateKey(input.idempotencyKey);
     if (!validKey.ok) return validKey;
     const inputFingerprint = fingerprint([
@@ -670,6 +688,7 @@ export class PostgresExpeditionRepository {
       input.expectedRevision.toString(),
       minutes,
       ...(sourceOutcomeId === undefined ? [] : [sourceOutcomeId]),
+      ...(input.semanticKey === undefined ? [] : [input.semanticKey]),
     ]);
     try {
       return await withTransaction(this.pool, async (client) => {
@@ -696,6 +715,12 @@ export class PostgresExpeditionRepository {
             effectRef: old.result.effectRef,
           });
         }
+        if (input.replayOnly)
+          return err(
+            appError("FLOW_BLOCKED", "Search lacks a committed receipt", {
+              userMessage: "Busca não confirmada. Consulte /explorar status.",
+            }),
+          );
         const original = await lockedExpedition(client, input.playerId, input.expeditionId);
         if (original === null) return unavailable();
 
@@ -797,11 +822,7 @@ export class PostgresExpeditionRepository {
   public async executeIgnoreIncidental(
     input: ExecuteIgnoreIncidentalInput,
   ): Promise<Result<StoredSearchActionTransition>> {
-    if (
-      process.env.APP_ENV !== "test" ||
-      process.env.NODE_ENV !== "test" ||
-      process.env.WHATSAPP_ENABLED !== "false"
-    ) {
+    if (!expeditionOperationAllowed(input.playerId)) {
       return err(appError("FLOW_BLOCKED", "Ignore requires isolated offline staging"));
     }
     const validKey = validateKey(input.idempotencyKey);
@@ -840,6 +861,7 @@ export class PostgresExpeditionRepository {
             AND encounter.player_id=outcome.player_id
             AND encounter.area_id=expedition.area_id
             AND encounter.status='ENGAGED'
+            AND (encounter.expires_at IS NULL OR encounter.expires_at>clock_timestamp())
             AND encounter.revision=$4::bigint
            JOIN player_locations location
              ON location.player_id=outcome.player_id
@@ -927,6 +949,8 @@ export class PostgresExpeditionRepository {
   public async changePeriod(
     input: ChangeStoredExpeditionPeriodInput,
   ): Promise<Result<StoredExpeditionTransition>> {
+    if (!expeditionOperationAllowed(input.playerId))
+      return err(appError("FLOW_BLOCKED", "Exploração indisponível para esta conta."));
     const validKey = validateKey(input.idempotencyKey);
     if (!validKey.ok) return validKey;
     if (input.period !== "DAY" && input.period !== "NIGHT") {
@@ -969,6 +993,8 @@ export class PostgresExpeditionRepository {
   }
 
   public async end(input: EndStoredExpeditionInput): Promise<Result<StoredExpeditionTransition>> {
+    if (!expeditionOperationAllowed(input.playerId))
+      return err(appError("FLOW_BLOCKED", "Exploração indisponível para esta conta."));
     const validKey = validateKey(input.idempotencyKey);
     if (!validKey.ok) return validKey;
     const inputFingerprint = fingerprint([

@@ -7,6 +7,7 @@ import { assertDatabaseSchemaCurrent } from "./platform/db/migrations.js";
 import { JsonLineStdoutSink, StructuredLogger } from "./platform/logging/index.js";
 import { createOperationalWhatsAppRuntime } from "./runtime/compose-whatsapp-runtime.js";
 import { loadEncounterRngRuntimeConfig } from "./runtime/encounter-rng-runtime-config.js";
+import { loadOperationalExpeditionPreview } from "./runtime/operational-expedition-preview.js";
 import { PostgresRuntimeHealthRepository } from "./runtime/postgres-runtime-health.js";
 import { loadPveBattleRuntimeConfig } from "./runtime/pve-battle-runtime-config.js";
 import { ReleaseRuntimeHealth } from "./runtime/release-runtime-health.js";
@@ -46,6 +47,7 @@ try {
     const encounterRngConfig = loadEncounterRngRuntimeConfig();
     const pveBattleConfig = loadPveBattleRuntimeConfig(encounterRngConfig);
     const worldServiceMedia = loadWorldServiceMediaRuntimeConfig();
+    const expeditionPreview = loadOperationalExpeditionPreview();
     auth = await PostgresBaileysAuthBinding.open(pool, {
       sessionKey: runtimeConfig.sessionKey,
       encryptionKey: runtimeConfig.authEncryptionKey,
@@ -71,6 +73,7 @@ try {
         ...(pveBattleConfig === null ? {} : { pveBattleConfig }),
         ...(worldServiceMedia === null ? {} : { worldServiceMedia }),
         hubPublicUrl: runtimeConfig.hubPublicUrl,
+        expeditionPreview,
         onSessionInvalidated: requestShutdown,
       });
       const supervisor = new WhatsAppRuntimeSupervisor(runtime, {
@@ -105,6 +108,7 @@ try {
         ...(pveBattleConfig === null ? {} : { pveBattleConfig }),
         ...(worldServiceMedia === null ? {} : { worldServiceMedia }),
         hubPublicUrl: runtimeConfig.hubPublicUrl,
+        expeditionPreview,
         onSessionInvalidated: releaseProcess.onSessionInvalidated,
         onProviderConnectionState: releaseProcess.onProviderConnectionState,
       });

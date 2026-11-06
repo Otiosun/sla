@@ -1,14 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
-import { EncounterService } from "../../modules/encounter/service.js";
-import { fishingDayKey } from "../../modules/world-services/fishing-calendar.js";
-import { encounterRepositoryWithinTransaction } from "../encounter/postgres-encounter-repository.js";
-import type { EncounterSeedProvider } from "../../modules/encounter/ports.js";
-import type { EncounterView } from "../../modules/encounter/contracts.js";
-import type { Clock } from "../clock/index.js";
-import type { FeatureAvailability } from "../../shared-kernel/gates.js";
-import { appError, err, ok, type AppError, type Result } from "../../shared-kernel/result.js";
 import { WorldAreaConfigSchema } from "../../modules/catalog/world-contracts.js";
+import type { EncounterView } from "../../modules/encounter/contracts.js";
+import type { EncounterSeedProvider } from "../../modules/encounter/ports.js";
+import { EncounterService } from "../../modules/encounter/service.js";
+import { expeditionOperationAllowed } from "../../modules/exploration/expedition-runtime-audience.js";
+import { fishingDayKey } from "../../modules/world-services/fishing-calendar.js";
 import {
   type FishingAttemptRepository,
   type FishingAttemptReservationResult,
@@ -17,8 +14,12 @@ import {
   fishingRarityForRoll,
   type ReserveFishingAttemptInput,
 } from "../../modules/world-services/fishing-service.js";
+import type { FeatureAvailability } from "../../shared-kernel/gates.js";
 import type { PlayerId } from "../../shared-kernel/ids.js";
+import { type AppError, appError, err, ok, type Result } from "../../shared-kernel/result.js";
+import type { Clock } from "../clock/index.js";
 import { withTransaction } from "../db/transaction.js";
+import { encounterRepositoryWithinTransaction } from "../encounter/postgres-encounter-repository.js";
 
 const DAILY_LIMIT = 5;
 const ACTIVE_ENCOUNTER_STATUSES = [
@@ -81,6 +82,7 @@ export class PostgresFishingAttemptRepository implements FishingAttemptRepositor
       readonly fishingDayTimeZone: string;
       readonly seedProvider?: EncounterSeedProvider;
       readonly feature?: FeatureAvailability;
+      readonly expeditionEnabled?: boolean;
     },
   ) {
     // Reject invalid configuration before any SQL/attempt or quota mutation.
@@ -142,6 +144,23 @@ export class PostgresFishingAttemptRepository implements FishingAttemptRepositor
         ) {
           throw new FishingAtomicRollback(
             appError("FLOW_BLOCKED", "Fishing encounter is not in the reserved area"),
+          );
+        }
+        if (
+          config.expeditionEnabled &&
+          !reservation.replayed &&
+          expeditionOperationAllowed(input.playerId)
+        ) {
+          await client.query(
+            `INSERT INTO solo_expedition_fishing_encounters(encounter_id,attempt_id,expedition_id,player_id,area_id)
+             SELECT $1,$2,id,player_id,area_id FROM solo_expeditions
+             WHERE player_id=$3 AND area_id=$4 AND phase='ACTIVE'`,
+            [
+              encounter.value.encounterId,
+              reservation.attemptId,
+              input.playerId,
+              reservation.areaId,
+            ],
           );
         }
         return ok({ reservation, encounter: encounter.value });

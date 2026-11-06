@@ -28,7 +28,9 @@ async function regularFile(path) {
 }
 
 async function persistExclusive(temp, final) {
-  const file = await open(temp, "r");
+  // FlushFileBuffers on Windows requires a writable handle. Keep the sync
+  // before publishing; silently ignoring EPERM would weaken backup durability.
+  const file = await open(temp, "r+");
   try {
     await file.sync();
   } finally {

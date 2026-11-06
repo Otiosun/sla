@@ -235,12 +235,11 @@ describe.sequential("competitive spawn repository on disposable PostgreSQL", () 
   afterAll(async () => {
     if (pool !== undefined) await pool.end();
     if (adminPool !== undefined) {
-      await adminPool.query(
-        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()",
-        [dbName],
-      );
-      await adminPool.query(`DROP DATABASE IF EXISTS "${dbName}"`);
-      await adminPool.end();
+      try {
+        await adminPool.query(`DROP DATABASE IF EXISTS "${dbName}"`);
+      } finally {
+        await adminPool.end();
+      }
     }
   }, 30_000);
 

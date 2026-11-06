@@ -1,5 +1,9 @@
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
-import { EXPEDITION_DURATION_MINUTES, type ExpeditionPeriod } from "./expedition-clock.js";
+import {
+  EXPEDITION_DURATION_MINUTES,
+  EXPEDITION_WEEKLY_LIMIT,
+  type ExpeditionPeriod,
+} from "./expedition-clock.js";
 import { expeditionWeeklyAdmission } from "./expedition-week.js";
 
 export type ExpeditionPhase = "PREPARING" | "ACTIVE" | "ENDED";
@@ -130,7 +134,7 @@ export function advanceExpedition(input: {
     if (!admission.canConsumeFirstAction) {
       return err(
         appError("FLOW_BLOCKED", "Expedition weekly limit reached", {
-          userMessage: "Você já utilizou suas três expedições desta semana.",
+          userMessage: `Você já utilizou suas ${EXPEDITION_WEEKLY_LIMIT} expedições desta semana.`,
         }),
       );
     }

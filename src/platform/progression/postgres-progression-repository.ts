@@ -1603,78 +1603,92 @@ export class PostgresProgressionRepository implements ProgressionRepository {
   public async adjustTrainerProgress(
     input: AdjustTrainerProgressInput,
   ): Promise<TrainerProgressAdjustmentPersistenceResult> {
-    const storageKey = hashParts("progression.trainer-adjust", input.idempotencyKey.trim());
     try {
-      return await withTransaction(this.pool, async (client) => {
-        await acquireLocks(client, [
-          `progression:trainer-adjust-key:${storageKey}`,
-          `progression:trainer:${input.playerId}`,
-        ]);
+      return await withTransaction(this.pool, (client) =>
+        this.adjustTrainerProgressInTransaction(client, input),
+      );
+    } catch (error) {
+      if (error instanceof ProgressionStateViolation)
+        return { kind: "STATE_INVALID", reason: error.message };
+      throw error;
+    }
+  }
 
-        const existing = await client.query<{
-          player_id: string;
-          delta: string;
-          source_type: string;
-          source_id: string;
-          reason: string | null;
-          actor_type: string;
-          actor_id: string | null;
-          ruleset_id: string | null;
-          result: unknown;
-        }>(
-          `SELECT player_id, delta::text, source_type, source_id, reason, actor_type, actor_id,
+  /** Caller owns rollback; no nested BEGIN/COMMIT or separate connection. */
+  public async adjustTrainerProgressInTransaction(
+    client: PoolClient,
+    input: AdjustTrainerProgressInput,
+  ): Promise<TrainerProgressAdjustmentPersistenceResult> {
+    const storageKey = hashParts("progression.trainer-adjust", input.idempotencyKey.trim());
+    await acquireLocks(client, [
+      `progression:trainer-adjust-key:${storageKey}`,
+      `progression:trainer:${input.playerId}`,
+    ]);
+
+    const existing = await client.query<{
+      player_id: string;
+      delta: string;
+      source_type: string;
+      source_id: string;
+      reason: string | null;
+      actor_type: string;
+      actor_id: string | null;
+      ruleset_id: string | null;
+      result: unknown;
+    }>(
+      `SELECT player_id, delta::text, source_type, source_id, reason, actor_type, actor_id,
                   ruleset_id, result
            FROM trainer_progress_ledger
            WHERE idempotency_scope = 'progression.trainer-adjust' AND idempotency_key = $1
            FOR UPDATE`,
-          [storageKey],
-        );
-        const replay = existing.rows[0];
-        if (replay !== undefined) {
-          if (replay.ruleset_id === null || replay.result === null) {
-            return {
-              kind: "STATE_INVALID",
-              reason: "Trainer adjustment replay lacks durable result metadata",
-            };
-          }
-          const parsed = TrainerProgressAdjustmentResultSchema.safeParse(replay.result);
-          if (!parsed.success) {
-            return { kind: "STATE_INVALID", reason: "Invalid stored trainer adjustment result" };
-          }
-          const compatible =
-            replay.player_id === input.playerId &&
-            safeInteger(replay.delta, "trainer progress ledger delta") === parsed.data.delta &&
-            (parsed.data.requestedDelta ?? parsed.data.delta) === input.delta &&
-            replay.source_type === input.metadata.sourceType &&
-            replay.source_id === input.metadata.sourceId &&
-            replay.reason === input.metadata.reason &&
-            replay.actor_type === input.metadata.actorType &&
-            replay.actor_id === input.metadata.actorId;
-          if (!compatible) return { kind: "IDEMPOTENCY_CONFLICT" };
-          if (parsed.data.rulesetId !== replay.ruleset_id) {
-            return {
-              kind: "STATE_INVALID",
-              reason: "Trainer adjustment result ruleset drifted from ledger",
-            };
-          }
-          return { kind: "REPLAYED", result: { ...parsed.data, replayed: true } };
-        }
+      [storageKey],
+    );
+    const replay = existing.rows[0];
+    if (replay !== undefined) {
+      if (replay.ruleset_id === null || replay.result === null) {
+        return {
+          kind: "STATE_INVALID",
+          reason: "Trainer adjustment replay lacks durable result metadata",
+        };
+      }
+      const parsed = TrainerProgressAdjustmentResultSchema.safeParse(replay.result);
+      if (!parsed.success) {
+        return { kind: "STATE_INVALID", reason: "Invalid stored trainer adjustment result" };
+      }
+      const compatible =
+        replay.player_id === input.playerId &&
+        safeInteger(replay.delta, "trainer progress ledger delta") === parsed.data.delta &&
+        (parsed.data.requestedDelta ?? parsed.data.delta) === input.delta &&
+        replay.source_type === input.metadata.sourceType &&
+        replay.source_id === input.metadata.sourceId &&
+        replay.reason === input.metadata.reason &&
+        replay.actor_type === input.metadata.actorType &&
+        replay.actor_id === input.metadata.actorId;
+      if (!compatible) return { kind: "IDEMPOTENCY_CONFLICT" };
+      if (parsed.data.rulesetId !== replay.ruleset_id) {
+        return {
+          kind: "STATE_INVALID",
+          reason: "Trainer adjustment result ruleset drifted from ledger",
+        };
+      }
+      return { kind: "REPLAYED", result: { ...parsed.data, replayed: true } };
+    }
 
-        const player = await client.query<{ status: string }>(
-          `SELECT status FROM players WHERE id = $1`,
-          [input.playerId],
-        );
-        const playerRow = player.rows[0];
-        if (playerRow === undefined) return { kind: "NOT_FOUND" };
-        if (playerRow.status !== "ACTIVE") {
-          return {
-            kind: "STATE_INVALID",
-            reason: `Player status ${playerRow.status} cannot receive progression adjustment`,
-          };
-        }
+    const player = await client.query<{ status: string }>(
+      `SELECT status FROM players WHERE id = $1`,
+      [input.playerId],
+    );
+    const playerRow = player.rows[0];
+    if (playerRow === undefined) return { kind: "NOT_FOUND" };
+    if (playerRow.status !== "ACTIVE") {
+      return {
+        kind: "STATE_INVALID",
+        reason: `Player status ${playerRow.status} cannot receive progression adjustment`,
+      };
+    }
 
-        const activeRules = await client.query<{ ruleset_id: string; config: unknown }>(
-          `SELECT release.default_ruleset_id AS ruleset_id, ruleset.config
+    const activeRules = await client.query<{ ruleset_id: string; config: unknown }>(
+      `SELECT release.default_ruleset_id AS ruleset_id, ruleset.config
            FROM content_release_pointers pointer
            JOIN content_releases release ON release.id = pointer.content_release_id
            JOIN rulesets ruleset ON ruleset.id = release.default_ruleset_id
@@ -1682,159 +1696,149 @@ export class PostgresProgressionRepository implements ProgressionRepository {
              AND release.status = 'PUBLISHED'
              AND ruleset.status = 'PUBLISHED'
            FOR SHARE OF pointer, release, ruleset`,
-        );
-        const activeRow = activeRules.rows[0];
-        if (activeRow === undefined) return { kind: "RULES_MISSING" };
-        const config = parseRulesetConfig(activeRow.config);
-        const progression = config.progression;
-        if (progression === undefined) return { kind: "RULES_MISSING" };
+    );
+    const activeRow = activeRules.rows[0];
+    if (activeRow === undefined) return { kind: "RULES_MISSING" };
+    const config = parseRulesetConfig(activeRow.config);
+    const progression = config.progression;
+    if (progression === undefined) return { kind: "RULES_MISSING" };
 
-        await client.query(
-          `INSERT INTO trainer_progression(player_id) VALUES ($1) ON CONFLICT (player_id) DO NOTHING`,
-          [input.playerId],
-        );
-        const current = await client.query<{ level: number; progression_points: string }>(
-          `SELECT level, progression_points::text
+    await client.query(
+      `INSERT INTO trainer_progression(player_id) VALUES ($1) ON CONFLICT (player_id) DO NOTHING`,
+      [input.playerId],
+    );
+    const current = await client.query<{ level: number; progression_points: string }>(
+      `SELECT level, progression_points::text
            FROM trainer_progression WHERE player_id = $1 FOR UPDATE`,
-          [input.playerId],
-        );
-        const currentRow = current.rows[0];
-        if (currentRow === undefined) {
-          throw new ProgressionStateViolation("Trainer progression row is unavailable");
-        }
-        const beforePoints = safeInteger(
-          currentRow.progression_points,
-          "trainer progression_points",
-        );
-        let appliedDelta = input.delta;
-        if (
-          eligibleEarnedTrainerAdjustment({
-            delta: input.delta,
-            actorType: input.metadata.actorType,
-            sourceType: input.metadata.sourceType,
-          })
-        ) {
-          const boost = await client.query<{ multiplier: number }>(
-            `SELECT pokemon_battle_xp_multiplier_for($1, now())::int AS multiplier`,
-            [input.playerId],
-          );
-          const multiplier = boost.rows[0]?.multiplier ?? 1;
-          if (multiplier !== 1 && multiplier !== 2) {
-            return { kind: "STATE_INVALID", reason: "Earned XP multiplier is invalid" };
-          }
-          if (!Number.isSafeInteger(input.delta * multiplier)) {
-            return { kind: "STATE_INVALID", reason: "Earned XP exceeds safe range" };
-          }
-          appliedDelta = multiplyEarnedXp(input.delta, multiplier);
-        }
-        const afterPoints = beforePoints + appliedDelta;
-        if (!Number.isSafeInteger(afterPoints)) {
-          return {
-            kind: "STATE_INVALID",
-            reason: "Trainer progression points overflow JS safe range",
-          };
-        }
-        if (afterPoints < 0) return { kind: "UNDERFLOW" };
-        const afterLevel = trainerLevelForPoints(
-          afterPoints,
-          progression.trainer.levelCap,
-          progression.trainer.levelCurve,
-        );
-        const updated = await client.query(
-          `UPDATE trainer_progression
+      [input.playerId],
+    );
+    const currentRow = current.rows[0];
+    if (currentRow === undefined) {
+      throw new ProgressionStateViolation("Trainer progression row is unavailable");
+    }
+    const beforePoints = safeInteger(currentRow.progression_points, "trainer progression_points");
+    let appliedDelta = input.delta;
+    if (
+      eligibleEarnedTrainerAdjustment({
+        delta: input.delta,
+        actorType: input.metadata.actorType,
+        sourceType: input.metadata.sourceType,
+      })
+    ) {
+      const boost = await client.query<{ multiplier: number }>(
+        `SELECT pokemon_battle_xp_multiplier_for($1, now())::int AS multiplier`,
+        [input.playerId],
+      );
+      const multiplier = boost.rows[0]?.multiplier ?? 1;
+      if (multiplier !== 1 && multiplier !== 2) {
+        return { kind: "STATE_INVALID", reason: "Earned XP multiplier is invalid" };
+      }
+      if (!Number.isSafeInteger(input.delta * multiplier)) {
+        return { kind: "STATE_INVALID", reason: "Earned XP exceeds safe range" };
+      }
+      appliedDelta = multiplyEarnedXp(input.delta, multiplier);
+    }
+    const afterPoints = beforePoints + appliedDelta;
+    if (!Number.isSafeInteger(afterPoints)) {
+      return {
+        kind: "STATE_INVALID",
+        reason: "Trainer progression points overflow JS safe range",
+      };
+    }
+    if (afterPoints < 0) return { kind: "UNDERFLOW" };
+    const afterLevel = trainerLevelForPoints(
+      afterPoints,
+      progression.trainer.levelCap,
+      progression.trainer.levelCurve,
+    );
+    const updated = await client.query(
+      `UPDATE trainer_progression
            SET progression_points = $2, level = $3, revision = revision + 1, updated_at = now()
            WHERE player_id = $1`,
-          [input.playerId, afterPoints, afterLevel],
-        );
-        if (updated.rowCount !== 1) {
-          throw new ProgressionStateViolation("Trainer progression adjustment update failed");
-        }
+      [input.playerId, afterPoints, afterLevel],
+    );
+    if (updated.rowCount !== 1) {
+      throw new ProgressionStateViolation("Trainer progression adjustment update failed");
+    }
 
-        const activatedUnlockKeys: string[] = [];
-        const revokedUnlockKeys: string[] = [];
-        for (const unlock of progression.trainer.unlocks) {
-          const currentUnlock = await client.query<{ status: string }>(
-            `SELECT status FROM trainer_unlocks
+    const activatedUnlockKeys: string[] = [];
+    const revokedUnlockKeys: string[] = [];
+    for (const unlock of progression.trainer.unlocks) {
+      const currentUnlock = await client.query<{ status: string }>(
+        `SELECT status FROM trainer_unlocks
              WHERE player_id = $1 AND unlock_key = $2 FOR UPDATE`,
-            [input.playerId, unlock.unlockKey],
-          );
-          const unlockRow = currentUnlock.rows[0];
-          if (afterLevel >= unlock.level) {
-            if (unlockRow === undefined) {
-              await client.query(
-                `INSERT INTO trainer_unlocks(
+        [input.playerId, unlock.unlockKey],
+      );
+      const unlockRow = currentUnlock.rows[0];
+      if (afterLevel >= unlock.level) {
+        if (unlockRow === undefined) {
+          await client.query(
+            `INSERT INTO trainer_unlocks(
                    player_id, unlock_key, source_type, source_id, status, unlocked_at, revoked_at
                  ) VALUES ($1, $2, 'TRAINER_PROGRESSION', $3, 'ACTIVE', now(), NULL)`,
-                [input.playerId, unlock.unlockKey, input.metadata.sourceId],
-              );
-              activatedUnlockKeys.push(unlock.unlockKey);
-            } else if (unlockRow.status === "REVOKED") {
-              await client.query(
-                `UPDATE trainer_unlocks
+            [input.playerId, unlock.unlockKey, input.metadata.sourceId],
+          );
+          activatedUnlockKeys.push(unlock.unlockKey);
+        } else if (unlockRow.status === "REVOKED") {
+          await client.query(
+            `UPDATE trainer_unlocks
                  SET status = 'ACTIVE', source_type = 'TRAINER_PROGRESSION', source_id = $3,
                      unlocked_at = now(), revoked_at = NULL, revision = revision + 1
                  WHERE player_id = $1 AND unlock_key = $2 AND status = 'REVOKED'`,
-                [input.playerId, unlock.unlockKey, input.metadata.sourceId],
-              );
-              activatedUnlockKeys.push(unlock.unlockKey);
-            }
-          } else if (unlockRow?.status === "ACTIVE") {
-            await client.query(
-              `UPDATE trainer_unlocks
+            [input.playerId, unlock.unlockKey, input.metadata.sourceId],
+          );
+          activatedUnlockKeys.push(unlock.unlockKey);
+        }
+      } else if (unlockRow?.status === "ACTIVE") {
+        await client.query(
+          `UPDATE trainer_unlocks
                SET status = 'REVOKED', source_type = 'TRAINER_PROGRESSION', source_id = $3,
                    revoked_at = now(), revision = revision + 1
                WHERE player_id = $1 AND unlock_key = $2 AND status = 'ACTIVE'`,
-              [input.playerId, unlock.unlockKey, input.metadata.sourceId],
-            );
-            revokedUnlockKeys.push(unlock.unlockKey);
-          }
-        }
+          [input.playerId, unlock.unlockKey, input.metadata.sourceId],
+        );
+        revokedUnlockKeys.push(unlock.unlockKey);
+      }
+    }
 
-        const result = TrainerProgressAdjustmentResultSchema.parse({
-          playerId: input.playerId,
-          delta: appliedDelta,
-          ...(appliedDelta === input.delta ? {} : { requestedDelta: input.delta }),
-          beforePoints,
-          afterPoints,
-          beforeLevel: currentRow.level,
-          afterLevel,
-          rulesetId: activeRow.ruleset_id,
-          activatedUnlockKeys,
-          revokedUnlockKeys,
-          replayed: false,
-        });
-        const ledger = await client.query(
-          `INSERT INTO trainer_progress_ledger(
+    const result = TrainerProgressAdjustmentResultSchema.parse({
+      playerId: input.playerId,
+      delta: appliedDelta,
+      ...(appliedDelta === input.delta ? {} : { requestedDelta: input.delta }),
+      beforePoints,
+      afterPoints,
+      beforeLevel: currentRow.level,
+      afterLevel,
+      rulesetId: activeRow.ruleset_id,
+      activatedUnlockKeys,
+      revokedUnlockKeys,
+      replayed: false,
+    });
+    const ledger = await client.query(
+      `INSERT INTO trainer_progress_ledger(
              id, player_id, delta, source_type, source_id, reason, actor_type, actor_id,
              idempotency_scope, idempotency_key, correlation_id, ruleset_id, result
            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
                      'progression.trainer-adjust', $9, $10, $11, $12::jsonb)`,
-          [
-            randomUUID(),
-            input.playerId,
-            appliedDelta,
-            input.metadata.sourceType,
-            input.metadata.sourceId,
-            input.metadata.reason,
-            input.metadata.actorType,
-            input.metadata.actorId,
-            storageKey,
-            input.correlationId,
-            activeRow.ruleset_id,
-            JSON.stringify(result),
-          ],
-        );
-        if (ledger.rowCount !== 1) {
-          throw new ProgressionStateViolation("Trainer progression adjustment ledger claim failed");
-        }
-        return { kind: "APPLIED", result };
-      });
-    } catch (error) {
-      if (error instanceof ProgressionStateViolation) {
-        return { kind: "STATE_INVALID", reason: error.message };
-      }
-      throw error;
+      [
+        randomUUID(),
+        input.playerId,
+        appliedDelta,
+        input.metadata.sourceType,
+        input.metadata.sourceId,
+        input.metadata.reason,
+        input.metadata.actorType,
+        input.metadata.actorId,
+        storageKey,
+        input.correlationId,
+        activeRow.ruleset_id,
+        JSON.stringify(result),
+      ],
+    );
+    if (ledger.rowCount !== 1) {
+      throw new ProgressionStateViolation("Trainer progression adjustment ledger claim failed");
     }
+    return { kind: "APPLIED", result };
   }
 
   public async resolveMoveChoice(

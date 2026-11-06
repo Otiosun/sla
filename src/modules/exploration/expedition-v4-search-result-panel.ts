@@ -1,6 +1,6 @@
-import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import type { SearchOutcomeKind } from "../../platform/exploration/expedition-search-outcome-effect.js";
 import type { VerifiedExpeditionSearchEncounterPreview } from "../../platform/exploration/postgres-expedition-search-encounter-preview.js";
+import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import { EXPEDITION_DURATION_MINUTES } from "./expedition-clock.js";
 
 /**
@@ -14,7 +14,15 @@ export function renderExpeditionV4SearchResultPanel(input: {
   readonly elapsedMinutes: number;
   readonly consumedWeeklySlot: boolean;
   readonly canFollowTrail?: boolean;
+  readonly historical?: boolean;
+  readonly targetSpeciesSlug?: string;
 }): Result<string> {
+  if (
+    input.targetSpeciesSlug !== undefined &&
+    !/^[a-z0-9][a-z0-9-]{0,63}$/u.test(input.targetSpeciesSlug)
+  ) {
+    return err(appError("FLOW_BLOCKED", "Invalid search target presentation"));
+  }
   const isEncounter = input.kind === "DIRECT" || input.kind === "INCIDENTAL";
   if (
     !["NO_SIGNAL", "TRAIL", "INCIDENTAL", "DIRECT"].includes(input.kind) ||
@@ -31,7 +39,7 @@ export function renderExpeditionV4SearchResultPanel(input: {
       speciesName.length < 1 ||
       speciesName.length > 70 ||
       speciesName.trim() !== speciesName ||
-      /[\r\n*_~`<>\u031d]/u.test(speciesName) ||
+      /(?:[\r\n*_~`<>]|\u031d)/u.test(speciesName) ||
       /\p{Cc}/u.test(speciesName) ||
       speciesName.includes("[Ler mais]") ||
       !Number.isSafeInteger(level) ||
@@ -52,7 +60,7 @@ export function renderExpeditionV4SearchResultPanel(input: {
       lines.push("> _Um rastro foi registrado na busca._");
       lines.push(
         input.canFollowTrail === true
-          ? "› _Seguir os rastros: /explorar seguir ● \`15 min\`. Encontro sujeito ao catálogo publicado._"
+          ? "› _Seguir os rastros: /explorar seguir ● `15 min`. Encontro sujeito ao catálogo publicado._"
           : "› _Seguir rastros permanece indisponível nesta prévia._",
       );
       break;
@@ -69,15 +77,24 @@ export function renderExpeditionV4SearchResultPanel(input: {
       if (encounter.shiny) lines.push("✨ *Shiny confirmado pelo encontro*");
       lines.push(
         "",
-        "› _Encontro registrado. Batalha e captura continuam desativadas nesta prévia._",
+        input.historical
+          ? "› _Busca anterior confirmada. Esse encontro não está disponível._"
+          : "› _Encontro registrado. Batalha e captura continuam desativadas nesta prévia._",
       );
       break;
     }
   }
+  if (input.targetSpeciesSlug !== undefined && !isEncounter && input.elapsedMinutes <= 690) {
+    lines.push(
+      "",
+      "› _Continuar: /explorar buscar " + input.targetSpeciesSlug + "_",
+      "› _Trocar alvo: /explorar buscar <espécie conhecida> · Parar: /explorar retomar._",
+    );
+  }
   lines.push(
     "",
     "⌛ *30min consumidos na expedição*",
-    `⌛ *Restam ${EXPEDITION_DURATION_MINUTES - input.elapsedMinutes}min*`,
+    `⌛ *${input.historical ? "Restavam na busca" : "Restam"} ${EXPEDITION_DURATION_MINUTES - input.elapsedMinutes}min*`,
     input.consumedWeeklySlot
       ? "🎟️ *Primeira cota semanal utilizada*"
       : "🎟️ *Nenhuma cota adicional utilizada*",

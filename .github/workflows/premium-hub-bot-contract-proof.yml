@@ -37,7 +37,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: Otiosun/pokemon-hub-web
-          ref: b997f1e6d2c5d5effced6e396ceca8607b8d34db
+          ref: edc5e315b8eb50b6d700437a8a2ea1ac364e0c7c
           path: __hub_contract
           persist-credentials: false
       - name: Verify both source trees and isolation
@@ -46,7 +46,7 @@ jobs:
           test "$APP_ENV" = test
           test "$NODE_ENV" = test
           test "$WHATSAPP_ENABLED" = false
-          test "$(git -C __hub_contract rev-parse HEAD)" = b997f1e6d2c5d5effced6e396ceca8607b8d34db
+          test "$(git -C __hub_contract rev-parse HEAD)" = edc5e315b8eb50b6d700437a8a2ea1ac364e0c7c
           test ! -e .env
           test ! -e .env.local
           test ! -e __hub_contract/.env

@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { ExpeditionCanonicalChoiceStagingResolver } from "../../src/modules/exploration/expedition-canonical-choice-staging.js";
-import type { VerifiedExpeditionIssuedMenu } from "../../src/platform/exploration/postgres-expedition-issued-menu-reply-proof.js";
 import type { MessageHandlerContext } from "../../src/modules/messaging/contracts.js";
 import { MessageRouter } from "../../src/modules/messaging/router.js";
+import type { VerifiedExpeditionIssuedMenu } from "../../src/platform/exploration/postgres-expedition-issued-menu-reply-proof.js";
 import { createPlayerId } from "../../src/shared-kernel/ids.js";
 import { appError, err, ok, type Result } from "../../src/shared-kernel/result.js";
 
@@ -96,6 +96,51 @@ function setup(battleExecute?: ReturnType<typeof vi.fn>) {
 }
 
 describe("staging canonical Capture/PvE mechanical command authorization", () => {
+  it("stages the exact V4 numeric Ball choice and only calls capture after Scene authorization", async () => {
+    const fixture = setup();
+    fixture.issuedResolve.mockResolvedValue(
+      ok({
+        menuId: randomUUID(),
+        playerId,
+        outcomeId,
+        encounterId,
+        encounterRevision: 2n,
+        ballItemIds: { "2": ballItemId },
+        actionable: true,
+        captureEnabled: true,
+        battleEnabled: false,
+      }),
+    );
+    const receive = vi.fn(async () => ok({ resultRefType: null, resultRefId: null, outgoing: [] }));
+    const resolver = new ExpeditionCanonicalChoiceStagingResolver(
+      { resolvePlayer: fixture.resolvePlayer } as never,
+      { resolve: fixture.resolve } as never,
+      { activeForPlayer: fixture.activeForPlayer } as never,
+      { resolve: fixture.issuedResolve } as never,
+      { attempt: fixture.attempt } as never,
+      { startCanonical: fixture.startCanonical } as never,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { receive },
+    );
+    const incoming = context("2");
+    expect(await resolver.resolve(incoming)).toMatchObject({ ok: true });
+    expect(receive).toHaveBeenCalledWith(incoming, { route: "EXPEDITION", context: incoming });
+    expect(fixture.attempt).not.toHaveBeenCalled();
+    expect(await resolver.resolve(incoming, true)).toMatchObject({ ok: true });
+    expect(fixture.attempt).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        ballItemId,
+        encounterId,
+        expectedEncounterRevision: 2n,
+        idempotencyKey: incoming.idempotencyKey,
+      }),
+    );
+    expect(receive).toHaveBeenCalledTimes(1);
+  });
   it("reconstructs committed PvE confirmation without rerunning battle admission", async () => {
     const fixture = setup();
     const execute = vi.fn(async () => {

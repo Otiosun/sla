@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  type ExpeditionMenuChoice,
+  selectExpeditionMenuChoice,
+} from "../../src/modules/exploration/expedition-contextual-menu.js";
+import type { ExpeditionSnapshot } from "../../src/modules/exploration/expedition-state.js";
+import {
   renderExpeditionV4OpeningPanel,
   renderExpeditionV4PreparingPanel,
 } from "../../src/modules/exploration/expedition-v4-preparation-panel.js";
-import {
-  selectExpeditionMenuChoice,
-  type ExpeditionMenuChoice,
-} from "../../src/modules/exploration/expedition-contextual-menu.js";
-import type { ExpeditionSnapshot } from "../../src/modules/exploration/expedition-state.js";
 
 const periods: readonly ExpeditionMenuChoice[] = [
   { optionNo: 1, intent: "PREPARE_DAY", label: "Diurno", phrases: ["diurno"] },
@@ -52,7 +52,7 @@ describe("Exploration V4 opening and PREPARING shadow contract", () => {
     const result = renderExpeditionV4OpeningPanel({
       phase: "NONE",
       locationName: "Campos de Yun",
-      remainingThisWeek: 3,
+      remainingThisWeek: 6,
       canPrepareUnderPolicy: true,
       choices: periods,
     });
@@ -61,7 +61,7 @@ describe("Exploration V4 opening and PREPARING shadow contract", () => {
     expect(result.value).toMatchObject({ padded: false, expanded: "" });
     expect(result.value.text).toContain("✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗘𝗫𝗣𝗟𝗢𝗥𝗔ÇÃ𝗢*");
     expect(result.value.text).toContain("*⌖ Local:* Campos de Yun");
-    expect(result.value.text).toContain("*🎟️ Disponíveis:* 3/3");
+    expect(result.value.text).toContain("*🎟️ Disponíveis:* 6/6");
     expect(result.value.text).toContain("1. ☀️ *Diurno*");
     expect(result.value.text).toContain("2. 🌙 *Noturno*");
     expect(result.value.text).not.toContain("\u031d");
@@ -72,7 +72,7 @@ describe("Exploration V4 opening and PREPARING shadow contract", () => {
     const valid = {
       phase: "NONE" as const,
       locationName: "Campos de Yun",
-      remainingThisWeek: 3,
+      remainingThisWeek: 6,
       canPrepareUnderPolicy: true as const,
       choices: periods,
     };
@@ -98,7 +98,7 @@ describe("Exploration V4 opening and PREPARING shadow contract", () => {
     const result = renderExpeditionV4PreparingPanel({
       expedition,
       locationName: "Campos de Yun",
-      remainingThisWeek: 3,
+      remainingThisWeek: 6,
       combiningCount: 450,
       choices: preparingActions,
     });
@@ -107,8 +107,8 @@ describe("Exploration V4 opening and PREPARING shadow contract", () => {
     expect(result.value.visible).toContain("🌙 `18:00 → 06:00`");
     expect(result.value.visible).toContain("*⌛ 12h* disponíveis");
     expect(result.value.visible).toContain("*🎟️ Cota ainda não consumida*");
-    expect(result.value.expanded).toContain("1. 🔎 Buscar Pokémon ● 30 min");
-    expect(result.value.expanded).toContain("2. 🎒 Buscar recursos ● 60 min");
+    expect(result.value.expanded).toContain("1. 🔎 Buscar Pokémon ● `30 min`");
+    expect(result.value.expanded).toContain("2. 🎒 Buscar recursos ● `60 min`");
     expect(result.value.expanded).toContain("5. ↩️ Cancelar preparação");
     expect(result.value.text).toBe(
       result.value.visible + "\n\n" + "\u031d".repeat(450) + "\n\n" + result.value.expanded,
@@ -141,7 +141,7 @@ describe("Exploration V4 opening and PREPARING shadow contract", () => {
     const common = {
       expedition,
       locationName: "Campos de Yun",
-      remainingThisWeek: 3,
+      remainingThisWeek: 6,
       combiningCount: 0,
       choices: preparingActions,
     };

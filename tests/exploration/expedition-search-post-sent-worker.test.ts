@@ -1,16 +1,16 @@
-import { describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
-import { createOperationalOutboxWorker } from "../../src/runtime/compose-whatsapp-runtime.js";
+import { describe, expect, it, vi } from "vitest";
+import { ExpeditionSearchPostSentHook } from "../../src/modules/exploration/expedition-search-post-sent-hook.js";
 import type { PendingOutboxMessage } from "../../src/modules/messaging/contracts.js";
 import type {
   MessagingRepository,
   OutboundMessageAdapter,
 } from "../../src/modules/messaging/ports.js";
 import { OutboxWorker } from "../../src/modules/messaging/service.js";
-import { PostgresMessagingRepository } from "../../src/platform/messaging/postgres-messaging-repository.js";
-import { ExpeditionSearchPostSentHook } from "../../src/modules/exploration/expedition-search-post-sent-hook.js";
 import { PostgresExpeditionPostSentRecovery } from "../../src/platform/exploration/postgres-expedition-post-sent-recovery.js";
-import { err, appError, ok } from "../../src/shared-kernel/result.js";
+import { PostgresMessagingRepository } from "../../src/platform/messaging/postgres-messaging-repository.js";
+import { createOperationalOutboxWorker } from "../../src/runtime/compose-whatsapp-runtime.js";
+import { appError, err, ok } from "../../src/shared-kernel/result.js";
 
 const playerId = "00000000-0000-4000-8000-000000000121";
 const encounterId = "00000000-0000-4000-8000-000000000122";
@@ -189,7 +189,7 @@ describe("staging exploration hook on the actual OutboxWorker", () => {
         expect(sql).toContain("NOT EXISTS");
         expect(sql).toContain("solo_incidental_menu_snapshots");
         expect(sql).toContain("NOT (o.payload ? 'expeditionMenu')");
-        expect(args).toEqual([25]);
+        expect(args).toEqual([25, null]);
         return {
           rows: [
             {

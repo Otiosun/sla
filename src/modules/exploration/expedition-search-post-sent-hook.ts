@@ -1,8 +1,8 @@
+import type { PostgresExpeditionReadOnlyMenuIssuer } from "../../platform/exploration/postgres-expedition-readonly-menu-issuer.js";
+import { parsePlayerId } from "../../shared-kernel/ids.js";
 import type { PendingOutboxMessage } from "../messaging/contracts.js";
 import type { OutboxPostSentHook } from "../messaging/service.js";
 import type { ExpeditionSearchEngagementAfterSent } from "./expedition-search-engagement-after-sent.js";
-import type { PostgresExpeditionReadOnlyMenuIssuer } from "../../platform/exploration/postgres-expedition-readonly-menu-issuer.js";
-import { parsePlayerId } from "../../shared-kernel/ids.js";
 
 /**
  * Opt-in staging hook for the REAL OutboxWorker's post-markOutboxSent seam.
@@ -12,7 +12,7 @@ import { parsePlayerId } from "../../shared-kernel/ids.js";
  * verifies status=SENT, sent_at, private destination, player, outcome, encounter,
  * expedition area, and active published release before any encounter transition.
  *
- * Do not compose into live Baileys. With an explicit test-only issuer, the
+ * Operational callers must verify the current audience before invoking the hook. The
  * existing encounter is engaged first and only then its immutable ACTIONABLE
  * menu is issued in a separate transaction. No new encounter is generated.
  */

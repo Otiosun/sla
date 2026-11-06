@@ -7,7 +7,7 @@ import { PostgresExpeditionReadOnlyMenuIssuer } from "./postgres-expedition-read
  * NODE_ENV=test and WHATSAPP_ENABLED=false. Not registered in live runtime.
  */
 export class PostgresExpeditionOfflineActionableMenuIssuer extends PostgresExpeditionReadOnlyMenuIssuer {
-  constructor(pool: Pool) {
-    super(pool, "ACTIONABLE");
+  constructor(pool: Pool, combiningCount = 0) {
+    super(pool, "ACTIONABLE", combiningCount);
   }
 }

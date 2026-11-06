@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
+import { expeditionOperationAllowed } from "../../modules/exploration/expedition-runtime-audience.js";
 import type {
   SceneProofRecord,
   WorldServiceKind,
@@ -109,7 +110,34 @@ const SESSION_RETURNING = `
 `;
 
 class PostgresWorldServiceSessionTransaction implements WorldServiceSessionTransaction {
-  public constructor(private readonly client: PoolClient) {}
+  public constructor(
+    private readonly client: PoolClient,
+    private readonly expeditionEnabled = false,
+  ) {}
+
+  public async expeditionAdmission(
+    playerId: PlayerId,
+    areaId: string,
+    serviceKind: WorldServiceKind,
+  ): Promise<string | null> {
+    if (!this.expeditionEnabled) return null;
+    if (!expeditionOperationAllowed(playerId)) return null;
+    await this.client.query("SELECT id FROM players WHERE id=$1 FOR UPDATE", [playerId]);
+    const eligible = await this.client.query<{ id: string }>(
+      `SELECT expedition.id::text FROM solo_expeditions expedition
+      JOIN player_locations location ON location.player_id=expedition.player_id AND location.area_id=expedition.area_id
+      JOIN content_release_pointers pointer ON pointer.pointer_key='ACTIVE'
+      JOIN content_releases release ON release.id=pointer.content_release_id AND release.status='PUBLISHED'
+      JOIN area_revisions area ON area.content_release_id=release.id AND area.area_id=location.area_id AND area.active=TRUE
+      WHERE expedition.player_id=$1 AND expedition.area_id=$2 AND expedition.phase='ACTIVE'
+        AND area.data->'facilities' ? $3
+        AND NOT EXISTS(SELECT 1 FROM encounters encounter WHERE encounter.player_id=$1
+          AND encounter.status IN ('CREATED','PRESENTED','ENGAGED','CAPTURE_RESOLVING','IN_BATTLE'))
+      FOR UPDATE OF expedition,location`,
+      [playerId, areaId, serviceKind],
+    );
+    return eligible.rowCount === 1 ? (eligible.rows[0]?.id ?? null) : null;
+  }
 
   public async insertSceneProof(input: InsertSceneProofWrite): Promise<SceneProofRecord> {
     const result = await this.client.query<SceneProofRow>(
@@ -188,6 +216,23 @@ class PostgresWorldServiceSessionTransaction implements WorldServiceSessionTrans
   public async createSession(
     input: CreateWorldServiceSessionWrite,
   ): Promise<WorldServiceSessionRecord> {
+    if (input.expeditionId !== undefined) {
+      const result = await this.client.query<WorldServiceSessionRow>(
+        `INSERT INTO world_service_sessions(id,player_id,area_id,service_kind,state,scene_proof_id,expedition_id,revision,created_at,updated_at)
+         VALUES($1,$2,$3,$4,'OPEN',NULL,$5,0,$6,$6) RETURNING ${SESSION_RETURNING}`,
+        [
+          randomUUID(),
+          input.playerId,
+          input.areaId,
+          input.serviceKind,
+          input.expeditionId,
+          input.createdAt,
+        ],
+      );
+      const row = result.rows[0];
+      if (!row) throw new Error("Expedition visit insert returned no row");
+      return sessionRecord(row);
+    }
     const result = await this.client.query<WorldServiceSessionRow>(
       `INSERT INTO world_service_sessions(
          id, player_id, area_id, service_kind, state, scene_proof_id,
@@ -256,14 +301,18 @@ class PostgresWorldServiceSessionTransaction implements WorldServiceSessionTrans
 }
 
 export class PostgresWorldServiceSessionRepository implements WorldServiceSessionRepository {
-  public constructor(private readonly pool: Pool) {}
+  public constructor(
+    private readonly pool: Pool,
+    private readonly expeditionEnabled = false,
+  ) {}
 
   public async transaction<T>(
     work: (transaction: WorldServiceSessionTransaction) => Promise<T>,
   ): Promise<T> {
     return withTransaction(
       this.pool,
-      async (client) => work(new PostgresWorldServiceSessionTransaction(client)),
+      async (client) =>
+        work(new PostgresWorldServiceSessionTransaction(client, this.expeditionEnabled)),
       { isolationLevel: "READ COMMITTED" },
     );
   }
@@ -273,7 +322,8 @@ export class PostgresWorldServiceSessionRepository implements WorldServiceSessio
   ): Promise<T> {
     return withTransaction(
       this.pool,
-      async (client) => work(new PostgresWorldServiceSessionTransaction(client)),
+      async (client) =>
+        work(new PostgresWorldServiceSessionTransaction(client, this.expeditionEnabled)),
       { isolationLevel: "REPEATABLE READ", readOnly: true },
     );
   }

@@ -1,18 +1,19 @@
 import { createHash } from "node:crypto";
 import type { Pool } from "pg";
+import type { BattleSeedReader } from "../../modules/battle/ports.js";
+import { PveBattleStartService } from "../../modules/battle/pve-battle-start.js";
+import { BattleService } from "../../modules/battle/service.js";
+import type { EncounterSeedProvider } from "../../modules/encounter/ports.js";
+import { EncounterService } from "../../modules/encounter/service.js";
+import { expeditionOperationAllowed } from "../../modules/exploration/expedition-runtime-audience.js";
+import type { FeatureAvailability } from "../../shared-kernel/gates.js";
+import type { PlayerId } from "../../shared-kernel/ids.js";
+import { type AppError, appError, err, ok, type Result } from "../../shared-kernel/result.js";
+import { battleRepositoryWithinTransaction } from "../battle/postgres-battle-repository.js";
 import type { Clock } from "../clock/index.js";
 import { withTransaction } from "../db/transaction.js";
 import { encounterRepositoryWithinTransaction } from "../encounter/postgres-encounter-repository.js";
-import { battleRepositoryWithinTransaction } from "../battle/postgres-battle-repository.js";
 import { readOfflineExpeditionBattleEligibility } from "./postgres-expedition-battle-eligibility.js";
-import { EncounterService } from "../../modules/encounter/service.js";
-import type { EncounterSeedProvider } from "../../modules/encounter/ports.js";
-import { BattleService } from "../../modules/battle/service.js";
-import type { BattleSeedReader } from "../../modules/battle/ports.js";
-import { PveBattleStartService } from "../../modules/battle/pve-battle-start.js";
-import type { FeatureAvailability } from "../../shared-kernel/gates.js";
-import type { PlayerId } from "../../shared-kernel/ids.js";
-import { appError, err, ok, type AppError, type Result } from "../../shared-kernel/result.js";
 
 interface ReceiptRow {
   readonly battle_id: string;
@@ -58,11 +59,7 @@ export class PostgresExpeditionOfflineBattleStart {
   async execute(
     input: StartOfflineExpeditionBattleInput,
   ): Promise<Result<{ readonly battleId: string; readonly replayed: boolean }>> {
-    if (
-      process.env.APP_ENV !== "test" ||
-      process.env.NODE_ENV !== "test" ||
-      process.env.WHATSAPP_ENABLED !== "false"
-    ) {
+    if (!expeditionOperationAllowed(input.playerId)) {
       return err(appError("FLOW_BLOCKED", "PvE receipt requires offline staging"));
     }
     if (
@@ -152,6 +149,7 @@ export class PostgresExpeditionOfflineBattleStart {
             AND encounter.player_id=$1
             AND encounter.area_id=expedition.area_id
             AND encounter.status='ENGAGED'
+          AND (encounter.expires_at IS NULL OR encounter.expires_at>clock_timestamp())
             AND encounter.revision=menu.encounter_revision
            JOIN content_release_pointers pointer ON pointer.pointer_key='ACTIVE'
            JOIN content_releases release

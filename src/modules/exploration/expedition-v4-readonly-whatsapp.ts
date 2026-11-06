@@ -1,42 +1,43 @@
 import type { Clock } from "../../platform/clock/index.js";
-import type { PostgresExpeditionRepository } from "../../platform/exploration/postgres-expedition-repository.js";
+import type { StoredSearchOutcome } from "../../platform/exploration/expedition-search-outcome-effect.js";
 import type { PostgresExpeditionEndConfirmationRecovery } from "../../platform/exploration/postgres-expedition-end-confirmation-recovery.js";
-import type { PostgresExpeditionV4StatusReader } from "../../platform/exploration/postgres-expedition-v4-status-reader.js";
+import type { PostgresExpeditionRepository } from "../../platform/exploration/postgres-expedition-repository.js";
 import type {
   PostgresExpeditionResourceConfirmationRecovery,
   RecoveredResourceConfirmation,
 } from "../../platform/exploration/postgres-expedition-resource-confirmation-recovery.js";
-import type { PostgresExpeditionV4EventHistoryReader } from "../../platform/exploration/postgres-expedition-v4-event-history-reader.js";
-import { renderExpeditionV4EventHistoryPanel } from "./expedition-v4-event-history-panel.js";
-import type { PostgresExpeditionV4StagingTrailFollow } from "../../platform/exploration/postgres-expedition-v4-trail.js";
 import type { PostgresExpeditionTrailConfirmationRecovery } from "../../platform/exploration/postgres-expedition-trail-confirmation-recovery.js";
-import { renderExpeditionV4TrailFollowPanel } from "./expedition-v4-trail-follow-panel.js";
-import type { PostgresExpeditionV4StagingResourceSearch } from "../../platform/exploration/postgres-expedition-v4-resources.js";
-import type { PostgresExpeditionV4StagingTravel } from "../../platform/exploration/postgres-expedition-v4-travel.js";
 import type { PostgresExpeditionTravelConfirmationRecovery } from "../../platform/exploration/postgres-expedition-travel-confirmation-recovery.js";
+import type { PostgresExpeditionV4EventHistoryReader } from "../../platform/exploration/postgres-expedition-v4-event-history-reader.js";
+import type { PostgresExpeditionV4StagingResourceSearch } from "../../platform/exploration/postgres-expedition-v4-resources.js";
 import type { PostgresExpeditionV4StagingSearch } from "../../platform/exploration/postgres-expedition-v4-search.js";
-import type { StoredSearchOutcome } from "../../platform/exploration/expedition-search-outcome-effect.js";
+import type { PostgresExpeditionV4StatusReader } from "../../platform/exploration/postgres-expedition-v4-status-reader.js";
+import type { PostgresExpeditionV4StagingTrailFollow } from "../../platform/exploration/postgres-expedition-v4-trail.js";
+import type { PostgresExpeditionV4StagingTravel } from "../../platform/exploration/postgres-expedition-v4-travel.js";
 import type { PlayerId } from "../../shared-kernel/ids.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import type { MessageHandlerContext, MessageHandlerResult } from "../messaging/contracts.js";
 import type { MessageRouteHandler } from "../messaging/ports.js";
 import type { CommandRouteDefinition } from "../messaging/router.js";
 import type { PlayerRegistrationService } from "../player/registration-service.js";
-import type { WorldService } from "../world/service.js";
 import type { WorldLocationView } from "../world/contracts.js";
+import type { WorldService } from "../world/service.js";
 import {
   EXPEDITION_DURATION_MINUTES,
   EXPEDITION_WEEKLY_LIMIT,
   expeditionClock,
 } from "./expedition-clock.js";
+import { expeditionOperationAllowed } from "./expedition-runtime-audience.js";
 import type { ExpeditionSnapshot } from "./expedition-state.js";
-import { expeditionWeekKey, expeditionWeeklyAdmission } from "./expedition-week.js";
+import { renderExpeditionV4ActivePanel } from "./expedition-v4-active-panel.js";
+import { renderExpeditionV4EventHistoryPanel } from "./expedition-v4-event-history-panel.js";
 import {
   renderExpeditionV4OpeningPanel,
   renderExpeditionV4PreparingPanel,
 } from "./expedition-v4-preparation-panel.js";
-import { renderExpeditionV4ActivePanel } from "./expedition-v4-active-panel.js";
 import { renderExpeditionV4SearchResultPanel } from "./expedition-v4-search-result-panel.js";
+import { renderExpeditionV4TrailFollowPanel } from "./expedition-v4-trail-follow-panel.js";
+import { expeditionWeekKey, expeditionWeeklyAdmission } from "./expedition-week.js";
 
 /**
  * Optional, read-only staging route. There is deliberately no action handler,
@@ -50,10 +51,13 @@ export interface ExpeditionV4StatusFacts {
 }
 
 export interface ExpeditionV4ReadOnlyDeps {
+  readonly combiningCount?: number;
+  readonly reports?: MessageRouteHandler;
   readonly players: Pick<PlayerRegistrationService, "resolvePlayer">;
   readonly world: Pick<WorldService, "getLocation">;
   readonly facts: {
     read(playerId: PlayerId, weekKey: string): Promise<ExpeditionV4StatusFacts>;
+    isRetry?(context: MessageHandlerContext): Promise<boolean>;
   };
   readonly group: {
     admits(input: {
@@ -67,7 +71,8 @@ export interface ExpeditionV4ReadOnlyDeps {
   /** Staging-only: omitted for the existing truly read-only route. */
   readonly preparation?: Pick<PostgresExpeditionRepository, "prepare" | "changePeriod" | "end">;
   /** Third explicit stage-only opt-in. No encounter route exists without it. */
-  readonly search?: Pick<PostgresExpeditionV4StagingSearch, "execute">;
+  readonly search?: Pick<PostgresExpeditionV4StagingSearch, "execute"> &
+    Partial<Pick<PostgresExpeditionV4StagingSearch, "recover">>;
   /** Trusted TRAIL source + canonical Encounter writer; isolated simulated WhatsApp only. */
   readonly trail?: Pick<PostgresExpeditionV4StagingTrailFollow, "readPending" | "execute">;
   /** Recover exactly the original committed follow message after Inbox failure. */
@@ -115,6 +120,7 @@ function privateSearchResult(
   text: string,
   playerId: PlayerId,
   outcome: StoredSearchOutcome,
+  actionable = true,
 ): Result<MessageHandlerResult> {
   const base = privateText(context, text);
   if (!base.ok || outcome.encounterId === null) return base;
@@ -125,17 +131,19 @@ function privateSearchResult(
     ...base.value,
     resultRefType: "EXPEDITION_SEARCH_OUTCOME",
     resultRefId: outcome.outcomeId,
-    outgoing: base.value.outgoing.map((message) => ({
-      ...message,
-      payload: {
-        ...message.payload,
-        expeditionSearch: {
-          playerId,
-          outcomeId: outcome.outcomeId,
-          encounterId: outcome.encounterId,
-        },
-      },
-    })),
+    outgoing: actionable
+      ? base.value.outgoing.map((message) => ({
+          ...message,
+          payload: {
+            ...message.payload,
+            expeditionSearch: {
+              playerId,
+              outcomeId: outcome.outcomeId,
+              encounterId: outcome.encounterId,
+            },
+          },
+        }))
+      : base.value.outgoing,
   });
 }
 
@@ -333,10 +341,12 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
 
   public async handle(context: MessageHandlerContext): Promise<Result<MessageHandlerResult>> {
     const text = context.message.text?.trim() ?? "";
+    if (this.deps.reports && /^\/explorar\s+(?:relat[oó]rio|revisar)(?:\s|$)/iu.test(text))
+      return this.deps.reports.handle(context);
     // Bare "1"/"2" require a durable menu reference and are not accepted.
     const match = /^\/explorar\s+(?:preparar\s+)?(dia|noite|1|2)$/iu.exec(text);
     const token = match?.[1]?.toLocaleLowerCase("pt-BR");
-    const period =
+    const period: "DAY" | "NIGHT" | null =
       token === "dia" || token === "1"
         ? "DAY"
         : token === "noite" || token === "2"
@@ -350,7 +360,10 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
           ? null
           : "NIGHT";
     const cancel = /^\/explorar\s+cancelar$/iu.test(text);
-    const searchFree = /^\/explorar\s+buscar$/iu.test(text);
+    const changePeriodRequested = /^\/explorar\s+alterar$/iu.test(text);
+    const targetSearch = /^\/explorar\s+buscar\s+([a-z0-9][a-z0-9-]{0,63})$/iu.exec(text);
+    const targetSpeciesSlug = targetSearch?.[1]?.toLowerCase();
+    const searchFree = /^\/explorar\s+buscar$/iu.test(text) || targetSearch !== null;
     const resourceFree = /^\/explorar\s+recursos$/iu.test(text);
     const trailRequested = /^\/explorar\s+(?:seguir(?:\s+rastros)?|rastros)$/iu.test(text);
     const helpRequested = /^\/explorar\s+ajuda$/iu.test(text);
@@ -366,7 +379,7 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
     if (
       !/^\/explorar(?:\s+(?:status|retomar|ajuda))?$/iu.test(text) &&
       (this.deps.preparation === undefined ||
-        (period === null && requestedPeriod === null && !cancel)) &&
+        (period === null && requestedPeriod === null && !cancel && !changePeriodRequested)) &&
       (!searchFree || this.deps.search === undefined) &&
       (!resourceFree || this.deps.resources === undefined) &&
       (!trailRequested || this.deps.trail === undefined) &&
@@ -472,11 +485,36 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
           "• Encontros diretos: `" + String(latest.direct) + "`",
           "",
           ...(latest.endReason === "BLACKOUT"
-            ? ["> _Derrota total: sem prêmio de conclusão._"]
+            ? [
+                "> _Derrota total: sem prêmio de conclusão._",
+                ...(latest.blackoutNeedsStaff
+                  ? ["Não há resgate disponível. Procure a equipe."]
+                  : []),
+              ]
             : ["> _Relatório externo (mínimo 100 palavras) e premiação dependem da equipe._"]),
           "› _Este resumo não confirma capturas, batalhas vencidas, itens ou prêmios._",
         ].join("\n"),
       );
+    }
+    if (searchFree && this.deps.search?.recover !== undefined) {
+      const recovered = await this.deps.search.recover(playerId, context, targetSpeciesSlug);
+      if (!recovered.ok) return recovered;
+      if (recovered.value !== null) {
+        const { transition, outcome, encounterPreview, historical } = recovered.value;
+        if (!transition.replayed)
+          return err(appError("FLOW_BLOCKED", "Resultado da busca sem recibo de recuperação."));
+        const panel = renderExpeditionV4SearchResultPanel({
+          kind: outcome.kind,
+          ...(targetSpeciesSlug === undefined ? {} : { targetSpeciesSlug }),
+          encounterPreview,
+          historical: historical ?? false,
+          elapsedMinutes: transition.expedition.elapsedMinutes,
+          consumedWeeklySlot: transition.consumedWeeklySlot,
+          canFollowTrail: this.deps.trail !== undefined,
+        });
+        if (!panel.ok) return panel;
+        return privateSearchResult(context, panel.value, playerId, outcome, !historical);
+      }
     }
     if (trailRequested && this.deps.trailRecovery !== undefined) {
       const recovered = await this.deps.trailRecovery.resolve({ playerId, context });
@@ -488,7 +526,15 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
           consumedWeeklySlot: recovered.value.consumedWeeklySlot,
         });
         if (!shown.ok) return shown;
-        return privateSearchResult(context, shown.value, playerId, recovered.value.outcome);
+        return privateSearchResult(
+          context,
+          recovered.value.historical
+            ? shown.value + "\n\nEsse encontro já foi encerrado."
+            : shown.value,
+          playerId,
+          recovered.value.outcome,
+          !recovered.value.historical,
+        );
       }
     }
     if (travelRequested !== null && this.deps.travelRecovery !== undefined) {
@@ -516,6 +562,19 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
       if (previous.value !== null) {
         return privateEndConfirmation(context, previous.value.elapsedMinutes);
       }
+    }
+    if (
+      ((trailRequested && this.deps.trailRecovery !== undefined) ||
+        (travelRequested !== null && this.deps.travelRecovery !== undefined) ||
+        ((resourceFree || token === "2") && this.deps.resourceRecovery !== undefined) ||
+        (endConfirmed && this.deps.endRecovery !== undefined)) &&
+      (await this.deps.facts.isRetry?.(context))
+    ) {
+      return err(
+        appError("FLOW_BLOCKED", "Expedition retry has no committed receipt", {
+          userMessage: "Ação não confirmada. Consulte /explorar status.",
+        }),
+      );
     }
     const located = await this.deps.world.getLocation(playerId);
     if (!located.ok) return located;
@@ -561,6 +620,54 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
           ? "PREPARING"
           : "ACTIVE";
     const quota = expeditionWeeklyAdmission(facts.usedThisWeek, state);
+    const weekKey = expeditionWeekKey(this.deps.clock.now(), this.deps.timeZone);
+    const currentNavigation = {
+      expeditionId: facts.expedition?.expeditionId ?? null,
+      revision: facts.expedition?.revision.toString() ?? null,
+      areaId: located.value.areaId,
+      weekKey,
+    };
+    const authorized = context.expeditionNavigationAuthorization;
+    if (
+      authorized &&
+      (authorized.expeditionId !== currentNavigation.expeditionId ||
+        authorized.revision !== currentNavigation.revision ||
+        authorized.areaId !== currentNavigation.areaId ||
+        authorized.weekKey !== weekKey)
+    )
+      return err(
+        appError("REVISION_CONFLICT", "Esse menu ficou desatualizado. Consulte /explorar status."),
+      );
+    const navigation = (
+      text: string,
+      commands: Readonly<Record<string, string>>,
+    ): Result<MessageHandlerResult> => {
+      const result = privateText(context, text);
+      if (!result.ok) return result;
+      return ok({
+        ...result.value,
+        outgoing: result.value.outgoing.map((message) => ({
+          ...message,
+          payload: {
+            ...message.payload,
+            expeditionNavigation: {
+              ...currentNavigation,
+              originChat: context.message.chatRef,
+              playerId,
+              commands,
+            },
+          },
+        })),
+      });
+    };
+    if (changePeriodRequested) {
+      if (state !== "PREPARING")
+        return err(appError("FLOW_BLOCKED", "O período só pode mudar durante a preparação."));
+      return navigation(
+        "◇ *𝗔𝗟𝗧𝗘𝗥𝗔𝗥 𝗣𝗘𝗥Í𝗢𝗗𝗢*\n\n1. ☀️ Diurno\n2. 🌙 Noturno\n\n> _A preparação permanece gratuita._",
+        { "1": "/explorar periodo dia", "2": "/explorar periodo noite" },
+      );
+    }
     if (helpRequested) {
       const choices = [
         "› _Consulte o estado: /explorar status ou /explorar retomar._",
@@ -572,12 +679,13 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
             ]
           : []),
         ...(state !== "NONE" && this.deps.search !== undefined
-          ? ["1. 🔎 Buscar Pokémon ● `30 min`", "› _Use /explorar 1 ou /explorar buscar._"]
+          ? [
+              "1. 🔎 Buscar Pokémon ● `30 min`",
+              "› _Use /explorar 1 ou /explorar buscar. Alvo conhecido: /explorar buscar <espécie>._",
+            ]
           : []),
         ...(state === "ACTIVE" && this.deps.trail !== undefined
-          ? [
-              "› _Seguir rastros recentes: /explorar seguir ● \`15 min\` (somente se houver rastro)._",
-            ]
+          ? ["› _Seguir rastros recentes: /explorar seguir ● `15 min` (somente se houver rastro)._"]
           : []),
         ...(state !== "NONE" && this.deps.resources !== undefined
           ? [
@@ -620,12 +728,7 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
       return privateExpeditionDestinations(context, located.value, this.deps.travel !== undefined);
     }
     if (travelRequested !== null && this.deps.travel !== undefined) {
-      if (
-        process.env.APP_ENV !== "test" ||
-        process.env.NODE_ENV !== "test" ||
-        process.env.WHATSAPP_ENABLED !== "false" ||
-        facts.expedition === null
-      ) {
+      if (!expeditionOperationAllowed(playerId) || facts.expedition === null) {
         return err(appError("FLOW_BLOCKED", "Travel requires isolated prepared expedition"));
       }
       const slug = travelRequested[1]?.toLowerCase();
@@ -693,11 +796,7 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
           ].join("\n"),
         );
       }
-      if (
-        process.env.APP_ENV !== "test" ||
-        process.env.NODE_ENV !== "test" ||
-        process.env.WHATSAPP_ENABLED !== "false"
-      ) {
+      if (!expeditionOperationAllowed(playerId)) {
         return err(appError("FLOW_BLOCKED", "Closure is only enabled in isolated development"));
       }
       const ended = await this.deps.preparation.end({
@@ -734,6 +833,7 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
         return err(appError("FLOW_BLOCKED", "Não há expedição para buscar nesta área."));
       }
       const committed = await this.deps.search.execute({
+        ...(targetSpeciesSlug === undefined ? {} : { targetSpeciesSlug }),
         playerId,
         expeditionId: current.expeditionId,
         expectedRevision: current.revision,
@@ -756,13 +856,21 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
       }
       const panel = renderExpeditionV4SearchResultPanel({
         kind: outcome.kind,
+        ...(targetSpeciesSlug === undefined ? {} : { targetSpeciesSlug }),
         encounterPreview: committed.value.encounterPreview,
+        historical: committed.value.historical ?? false,
         elapsedMinutes: transition.expedition.elapsedMinutes,
         consumedWeeklySlot: transition.consumedWeeklySlot,
         canFollowTrail: this.deps.trail !== undefined,
       });
       if (!panel.ok) return panel;
-      return privateSearchResult(context, panel.value, playerId, outcome);
+      return privateSearchResult(
+        context,
+        panel.value,
+        playerId,
+        outcome,
+        !committed.value.historical,
+      );
     }
     if (trailRequested && this.deps.trail !== undefined) {
       const current = facts.expedition;
@@ -884,6 +992,13 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
       ) {
         return err(appError("FLOW_BLOCKED", "O resultado da preparação é inconsistente."));
       }
+      if (requestedPeriod !== null && this.deps.search !== undefined) {
+        const { expeditionNavigationAuthorization: _authorization, ...display } = context;
+        return this.handle({
+          ...display,
+          message: { ...context.message, text: "/explorar status" },
+        });
+      }
       return privateText(
         context,
         [
@@ -935,6 +1050,13 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
           appError("FLOW_BLOCKED", "Persisted preparation disagrees with the canonical World"),
         );
       }
+      if (this.deps.search !== undefined) {
+        const { expeditionNavigationAuthorization: _authorization, ...display } = context;
+        return this.handle({
+          ...display,
+          message: { ...context.message, text: "/explorar status" },
+        });
+      }
       return privateText(
         context,
         [
@@ -977,6 +1099,8 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
         ],
       });
       if (!opening.ok) return opening;
+      if (this.deps.search !== undefined)
+        return navigation(opening.value.text, { "1": "/explorar dia", "2": "/explorar noite" });
       return privateText(
         context,
         [
@@ -1025,24 +1149,24 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
               label: "🗺️ Consultar destinos",
               phrases: [],
             },
+            { optionNo: 4, intent: "CHANGE_PERIOD", label: "🔄 Alterar período", phrases: [] },
+            {
+              optionNo: 5,
+              intent: "CANCEL_PREPARATION",
+              label: "↩️ Cancelar preparação",
+              phrases: [],
+            },
           ],
-          combiningCount: 0,
+          combiningCount: this.deps.combiningCount ?? 0,
         });
         if (!shown.ok) return shown;
-        return privateText(
-          context,
-          [
-            shown.value.text,
-            "› _Busque: /explorar 1 ou /explorar buscar._",
-            "› _Alterar gratuitamente: /explorar periodo dia ou /explorar periodo noite._",
-            "› _Cancelar preparação: /explorar cancelar._",
-            "3. 🗺️ Consultar destinos",
-            "› _Use /explorar 3 ou /explorar destinos, sem gasto._",
-            ...(this.deps.travel === undefined
-              ? ["› _Viagem ainda não está disponível._"]
-              : ["› _Viajar só quando a conexão tiver minutos aprovados._"]),
-          ].join("\n"),
-        );
+        return navigation(shown.value.text, {
+          "1": "/explorar buscar",
+          ...(this.deps.resources ? { "2": "/explorar recursos" } : {}),
+          "3": "/explorar destinos",
+          "4": "/explorar alterar",
+          "5": "/explorar cancelar",
+        });
       }
       const clock = expeditionClock(facts.expedition.period, facts.expedition.elapsedMinutes);
       const shown = renderExpeditionV4ActivePanel({
@@ -1080,25 +1204,15 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
             phrases: [],
           },
         ],
-        combiningCount: 0,
+        combiningCount: this.deps.combiningCount ?? 0,
       });
       if (!shown.ok) return shown;
-      return privateText(
-        context,
-        [
-          shown.value.text,
-          "› _Busque: /explorar 1 ou /explorar buscar._",
-          "› _Consultar destinos: /explorar 3 (sem gasto)._",
-          "› _Para encerrar: /explorar 4 (exige confirmação)._",
-          ...(this.deps.trail !== undefined &&
-          (await this.deps.trail.readPending(facts.expedition)) !== null
-            ? ["› _Há rastros recentes: /explorar seguir ● \`15 min\`._"]
-            : []),
-          ...(this.deps.travel === undefined
-            ? ["› _Viagem ainda não habilitada._"]
-            : ["› _Viagem somente com duração publicada._"]),
-        ].join("\n"),
-      );
+      return navigation(shown.value.text, {
+        "1": "/explorar buscar",
+        ...(this.deps.resources ? { "2": "/explorar recursos" } : {}),
+        "3": "/explorar destinos",
+        "4": "/explorar encerrar",
+      });
     }
     const title =
       facts.expedition === null
@@ -1202,7 +1316,8 @@ export function createExpeditionV4StagingPreparationRoutes(
 export function createExpeditionV4StagingSearchRoutes(
   deps: ExpeditionV4ReadOnlyDeps & {
     readonly preparation: Pick<PostgresExpeditionRepository, "prepare" | "changePeriod" | "end">;
-    readonly search: Pick<PostgresExpeditionV4StagingSearch, "execute">;
+    readonly search: Pick<PostgresExpeditionV4StagingSearch, "execute"> &
+      Partial<Pick<PostgresExpeditionV4StagingSearch, "recover">>;
   },
 ): readonly CommandRouteDefinition[] {
   return [
@@ -1210,11 +1325,17 @@ export function createExpeditionV4StagingSearchRoutes(
       command: "explorar",
       handler: new ExpeditionV4ReadOnlyHandler(deps),
       rateLimitClass: "SENSITIVE",
-      policy: {
-        requiredGroupCapabilities: ["world", "player.basic"],
-        allowedPlayerAccess: ["ACTIVE"],
-        requiresMechanicalReady: true,
-      },
+      policyForContext: (context) =>
+        deps.reports && /^\/explorar\s+revisar(?:\s|$)/iu.test(context.message.text ?? "")
+          ? {
+              requiredGroupCapabilities: ["world", "player.basic"],
+              requiredAdminCapability: "reward.grant",
+            }
+          : {
+              requiredGroupCapabilities: ["world", "player.basic"],
+              allowedPlayerAccess: ["ACTIVE"],
+              requiresMechanicalReady: true,
+            },
     },
   ];
 }

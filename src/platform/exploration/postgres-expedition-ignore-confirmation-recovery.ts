@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
 import type { Pool } from "pg";
-import type { PlayerId } from "../../shared-kernel/ids.js";
-import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
+import { expeditionOperationAllowed } from "../../modules/exploration/expedition-runtime-audience.js";
 import {
   incomingMessageFingerprint,
   type MessageHandlerContext,
 } from "../../modules/messaging/contracts.js";
+import type { PlayerId } from "../../shared-kernel/ids.js";
+import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 
 interface IgnoreRecoveryRow {
   readonly encounter_id: string;
@@ -31,9 +32,7 @@ export class PostgresExpeditionIgnoreConfirmationRecovery {
   }): Promise<Result<{ readonly encounterId: string; readonly elapsedMinutes: number } | null>> {
     const message = input.context.message;
     if (
-      process.env.APP_ENV !== "test" ||
-      process.env.NODE_ENV !== "test" ||
-      process.env.WHATSAPP_ENABLED !== "false" ||
+      !expeditionOperationAllowed(input.playerId) ||
       message.provider !== "baileys" ||
       message.chatRef !== message.senderRef ||
       !/^[0-9]{5,20}@(s\.whatsapp\.net|lid)$/u.test(message.senderRef) ||

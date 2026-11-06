@@ -89,19 +89,29 @@ export class WorldServiceSessionService {
           : err(worldServiceVisitConflict());
       }
 
-      const proof = await transaction.claimSceneProof({
-        playerId: input.playerId,
-        areaId: areaId.value,
-        consumedAt: now,
-      });
-      if (proof === null) return err(sceneProofRequired());
+      const expeditionId =
+        (await transaction.expeditionAdmission?.(
+          input.playerId,
+          areaId.value,
+          input.serviceKind,
+        )) ?? null;
+      const proof =
+        expeditionId !== null
+          ? null
+          : await transaction.claimSceneProof({
+              playerId: input.playerId,
+              areaId: areaId.value,
+              consumedAt: now,
+            });
+      if (expeditionId === null && proof === null) return err(sceneProofRequired());
 
       return ok(
         await transaction.createSession({
           playerId: input.playerId,
           areaId: areaId.value,
           serviceKind: input.serviceKind,
-          sceneProofId: proof.proofId,
+          sceneProofId: proof?.proofId ?? null,
+          ...(expeditionId === null ? {} : { expeditionId }),
           createdAt: now,
         }),
       );

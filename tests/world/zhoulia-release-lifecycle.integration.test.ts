@@ -1,10 +1,12 @@
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { Client, Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { CatalogService } from "../../src/modules/catalog/service.js";
 import { ZHOULIA_TYPED_CONTENT_V1 } from "../../src/modules/world/zhoulia-content.js";
 import { PostgresCatalogRepository } from "../../src/platform/catalog/postgres-catalog-repository.js";
+import { PostgresZhouliaEncounterDraftMaterializer } from "../../src/platform/world/postgres-zhoulia-encounter-materializer.js";
 import { reconcileZhouliaExclusiveRelease } from "../../src/platform/world/postgres-zhoulia-exclusive-release.js";
 
 const enabled =
@@ -278,6 +280,17 @@ describe.skipIf(!enabled)("Zhoulia release lifecycle", () => {
     expect(exclusive.activeEncounterTables).toHaveLength(7);
     expect(exclusive.activeStarterCount).toBe(1);
 
+    await pool.query(await readFile("db/candidates/0080_solo_exploration_v4.sql", "utf8"));
+    await pool.query(await readFile("db/candidates/0083_expedition_reports.sql", "utf8"));
+    await pool.query(
+      "INSERT INTO currency_definitions(id,slug,display_name) VALUES($1,'pokedollar','Pokédollar') ON CONFLICT(slug) DO NOTHING",
+      [randomUUID()],
+    );
+    const approved = await new PostgresZhouliaEncounterDraftMaterializer(
+      pool,
+    ).materializeApprovedV4({ releaseId, reservedSpeciesSlugs: [] });
+    expect(approved).toMatchObject({ tablesMaterialized: 6, entriesMaterialized: 39 });
+
     const beforeValidation = await pool.query<{
       status: string;
       active_release_id: string;
@@ -392,7 +405,7 @@ describe.skipIf(!enabled)("Zhoulia release lifecycle", () => {
       candidate_status: "PUBLISHED",
       zhoulia_regions: 1,
       zhoulia_areas: 6,
-      zhoulia_tables: 7,
+      zhoulia_tables: 6,
     });
 
     const rollback = await catalog.rollbackActiveRelease(parent.id);

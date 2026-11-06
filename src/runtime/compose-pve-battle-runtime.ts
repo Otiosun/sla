@@ -15,6 +15,10 @@ import { PostgresProgressionRepository } from "../platform/progression/postgres-
 import { AesBattleSeedReader } from "../platform/rng/battle-seed-reader.js";
 
 export interface PveBattleRuntimeConfig {
+  readonly pvpGroupTimingEnabled?: boolean;
+  readonly expeditionBlackoutEnabled?: boolean;
+  readonly operationalExpeditionPlayers?: ReadonlySet<string>;
+  readonly permitsExpeditionBattle?: (battleId: string) => Promise<boolean>;
   readonly turnWindowTtlMs: number;
   readonly maintenanceBatchSize: number;
   readonly encryptionKeys: ReadonlyMap<number, Uint8Array>;
@@ -27,17 +31,35 @@ export function createPveBattleRuntime(pool: Pool, config: PveBattleRuntimeConfi
   }
   const repository = new PostgresBattleRepository(pool, {
     turnWindowTtlMs: config.turnWindowTtlMs,
+    pvpGroupTimingEnabled: config.pvpGroupTimingEnabled ?? false,
+    expeditionSettlementEnabled: config.expeditionBlackoutEnabled ?? false,
+    ...(config.operationalExpeditionPlayers
+      ? { operationalExpeditionPlayers: config.operationalExpeditionPlayers }
+      : {}),
   });
   const seeds = new AesBattleSeedReader(config.encryptionKeys);
-  const aftermath = new PostgresBattleAftermath(pool);
+  const aftermath = new PostgresBattleAftermath(
+    pool,
+    config.expeditionBlackoutEnabled,
+    config.operationalExpeditionPlayers,
+    config.permitsExpeditionBattle,
+  );
   const battle = new BattleRuntimeService(
     new BattleService(repository, seeds),
     aftermath,
     new PostgresBattleCancellation(pool),
   );
   const dispatcher = new AutoTurnDispatcher(
-    new PostgresAutoTurnWindowReader(pool),
-    new PvpTurnResolutionService(new PostgresPvpTurnResolutionRepository(pool), seeds),
+    new PostgresAutoTurnWindowReader(pool, config.permitsExpeditionBattle),
+    new PvpTurnResolutionService(
+      new PostgresPvpTurnResolutionRepository(
+        pool,
+        config.pvpGroupTimingEnabled,
+        config.expeditionBlackoutEnabled,
+        config.operationalExpeditionPlayers,
+      ),
+      seeds,
+    ),
   );
   const rewards = new BattleRewardWorker(
     new PostgresBattleRewardCandidateSource(pool),

@@ -279,6 +279,17 @@ class PostgresEncounterTransaction implements EncounterTransaction {
     return result.rows[0]?.id ?? null;
   }
 
+  public async knownSpecies(playerId: PlayerId, speciesSlug: string): Promise<string | null> {
+    const result = await this.client.query<{ id: string }>(
+      `SELECT species.id FROM pokemon_species species
+       JOIN player_pokedex_species dex ON dex.species_id=species.id
+       WHERE dex.player_id=$1 AND species.slug=$2
+         AND (dex.seen_count>0 OR dex.caught_count>0)`,
+      [playerId, speciesSlug],
+    );
+    return result.rows[0]?.id ?? null;
+  }
+
   public async tables(
     contentReleaseId: string,
     areaId: string,

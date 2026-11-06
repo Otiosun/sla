@@ -99,6 +99,17 @@ function replyIdFromContent(content: BaileysMessageContentLike): string | null {
   return typeof stanzaId === "string" && stanzaId.length > 0 ? stanzaId : null;
 }
 
+function isForwardedContent(content: BaileysMessageContentLike): boolean {
+  const info =
+    content.extendedTextMessage?.contextInfo ??
+    content.imageMessage?.contextInfo ??
+    content.videoMessage?.contextInfo ??
+    content.audioMessage?.contextInfo ??
+    content.documentMessage?.contextInfo ??
+    content.stickerMessage?.contextInfo;
+  return info?.isForwarded === true || (info?.forwardingScore ?? 0) > 0;
+}
+
 function canonicalDeviceId(id: string): string {
   return id.replace(/:\d+@/, "@");
 }
@@ -193,6 +204,7 @@ export function normalizeBaileysMessage(
     mentions: mentionsFromContent(content, identityAliases),
     mediaRefs,
     replyToExternalMessageId: replyIdFromContent(content),
+    ...(isForwardedContent(content) ? { forwarded: true } : {}),
   });
   return normalized.success ? normalized.data : null;
 }

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { Pool } from "pg";
+import { expeditionOperationAllowed } from "../../modules/exploration/expedition-runtime-audience.js";
 import {
   incomingMessageFingerprint,
   type MessageHandlerContext,
@@ -49,9 +50,7 @@ export class PostgresExpeditionResourceConfirmationRecovery {
   }): Promise<Result<RecoveredResourceConfirmation | null>> {
     const message = input.context.message;
     if (
-      process.env.APP_ENV !== "test" ||
-      process.env.NODE_ENV !== "test" ||
-      process.env.WHATSAPP_ENABLED !== "false" ||
+      !expeditionOperationAllowed(input.playerId) ||
       message.provider !== "baileys" ||
       !/^\/explorar\s+(?:2|recursos)$/iu.test(message.text?.trim() ?? "")
     ) {

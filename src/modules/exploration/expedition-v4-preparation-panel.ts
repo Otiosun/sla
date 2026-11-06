@@ -1,9 +1,10 @@
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import { renderWhatsAppNativeReadMore } from "../messaging/whatsapp-native-read-more.js";
 import {
+  EXPEDITION_ACTION_MINUTES,
   EXPEDITION_WEEKLY_LIMIT,
-  expeditionClock,
   type ExpeditionPeriod,
+  expeditionClock,
 } from "./expedition-clock.js";
 import type { ExpeditionMenuChoice } from "./expedition-contextual-menu.js";
 import type { ExpeditionSnapshot } from "./expedition-state.js";
@@ -42,7 +43,7 @@ export interface ExpeditionV4PresentedPanel {
 
 function safeLocation(value: string): string | null {
   const sanitized = value
-    .replace(/[\r\n*_~`\/<>]/gu, " ")
+    .replace(/[\r\n*_~`/<>]/gu, " ")
     .replace(/\p{Cc}/gu, " ")
     .replace(/\u031d/gu, "")
     .replace(/\s+/gu, " ")
@@ -74,7 +75,7 @@ function safeMenu(
       return err(appError("VALIDATION_FAILED", "Invalid or repeated expedition action"));
     }
     const label = choice.label
-      .replace(/[\r\n*_~`\/<>]/gu, " ")
+      .replace(/[\r\n*_~`/<>]/gu, " ")
       .replace(/\p{Cc}/gu, " ")
       .replace(/\u031d/gu, "")
       .replace(/\s+/gu, " ")
@@ -84,7 +85,14 @@ function safeMenu(
     }
     seenNumbers.add(choice.optionNo);
     seenIntents.add(choice.intent);
-    lines.push(String(choice.optionNo) + ". " + label);
+    // Native formatting belongs to this trusted renderer, never to catalog labels.
+    const displayLabel =
+      choice.intent === "SEARCH_FREE"
+        ? "🔎 Buscar Pokémon ● `" + String(EXPEDITION_ACTION_MINUTES.SEARCH_POKEMON) + " min`"
+        : choice.intent === "SEARCH_RESOURCES"
+          ? "🎒 Buscar recursos ● `" + String(EXPEDITION_ACTION_MINUTES.SEARCH_RESOURCES) + " min`"
+          : label;
+    lines.push(String(choice.optionNo) + ". " + displayLabel);
   }
   return ok(lines);
 }
@@ -146,7 +154,7 @@ export function renderExpeditionV4OpeningPanel(
     "",
     "> O tempo avança conforme suas ações. A primeira ação efetiva utiliza uma cota de exploração.",
     "",
-    "◇ *𝗘𝗦𝗖𝗢𝗟𝗛𝗔 𝗢 𝗣𝗘𝗥Í𝗢𝗗𝗢*",
+    "◇ *𝗘𝗦𝗖𝗢𝗟𝗛𝗔 𝗢 𝗣𝗘𝗥𝗜́𝗢𝗗𝗢*",
     "",
     "1. ☀️ *Diurno* · `06:00–18:00`",
     "2. 🌙 *Noturno* · `18:00–06:00`",

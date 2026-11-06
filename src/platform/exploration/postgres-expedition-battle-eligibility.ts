@@ -43,6 +43,7 @@ export async function readOfflineExpeditionBattleEligibility(
        ON encounter.id=member.encounter_id
       AND encounter.player_id=member.player_id
       AND encounter.status='ENGAGED'
+          AND (encounter.expires_at IS NULL OR encounter.expires_at>clock_timestamp())
       AND encounter.content_release_id=$3
      WHERE member.player_id=$1
        AND member.encounter_id=$2

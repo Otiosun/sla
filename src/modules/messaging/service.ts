@@ -92,6 +92,7 @@ function attachInboundReplyContext(
     outgoing: result.outgoing.map((outgoing) => {
       if (
         outgoing.channel !== "whatsapp" ||
+        outgoing.destinationRef !== context.message.chatRef ||
         (outgoing.messageType !== "TEXT" && outgoing.messageType !== "IMAGE") ||
         outgoing.payload.replyToExternalMessageId !== undefined
       ) {
@@ -311,6 +312,7 @@ export class MessagingService {
 export interface OutboxWorkerOptions {
   /** Staging opt-in; every worker sharing the Outbox must adopt the same policy. */
   readonly quarantineUnknownDelivery?: boolean;
+  readonly quarantinePayloadKeys?: readonly string[];
   readonly batchSize: number;
   readonly staleAfterMs: number;
   readonly maxAttempts: number;
@@ -344,6 +346,8 @@ function retryAtForAttempt(input: {
   return new Date(Date.now() + delay);
 }
 
+export class OutboxDeliveryDenied extends Error {}
+
 export class OutboxWorker {
   private readonly adapters: ReadonlyMap<string, OutboundMessageAdapter>;
 
@@ -364,6 +368,9 @@ export class OutboxWorker {
       maxAttempts: this.options.maxAttempts,
       channels: [...this.adapters.keys()],
       ...(this.options.quarantineUnknownDelivery ? { quarantineStaleSending: true } : {}),
+      ...(this.options.quarantinePayloadKeys
+        ? { quarantinePayloadKeys: this.options.quarantinePayloadKeys }
+        : {}),
     });
     let sent = 0;
     let failed = 0;
@@ -390,24 +397,35 @@ export class OutboxWorker {
         sendResolved = true;
         await this.repository.markOutboxSent(message.id);
         sent += 1;
-      } catch {
+      } catch (error) {
         // A provider call may have been accepted even when it rejects or the
         // SENT write fails. Quarantine any attempted send in isolated staging.
-        const uncertain = sendAttempted && this.options.quarantineUnknownDelivery === true;
+        const denied = error instanceof OutboxDeliveryDenied;
+        const uncertain =
+          sendAttempted &&
+          (this.options.quarantineUnknownDelivery === true ||
+            this.options.quarantinePayloadKeys?.some((key) =>
+              Object.hasOwn(message.payload, key),
+            ) === true);
         const ambiguousCode = sendResolved
           ? "OUTBOX_SENT_PERSISTENCE_UNCONFIRMED"
           : "OUTBOX_TRANSPORT_OUTCOME_UNKNOWN";
         await this.repository.markOutboxFailed({
           outboxMessageId: message.id,
-          errorCode: uncertain ? ambiguousCode : "OUTBOX_DELIVERY_FAILED",
-          retryAt: uncertain
-            ? null
-            : retryAtForAttempt({
-                attempts: message.attempts,
-                maxAttempts: this.options.maxAttempts,
-                baseBackoffMs: this.options.baseBackoffMs,
-                maxBackoffMs: this.options.maxBackoffMs,
-              }),
+          errorCode: denied
+            ? "OUTBOX_DELIVERY_POLICY_DENIED"
+            : uncertain
+              ? ambiguousCode
+              : "OUTBOX_DELIVERY_FAILED",
+          retryAt:
+            denied || uncertain
+              ? null
+              : retryAtForAttempt({
+                  attempts: message.attempts,
+                  maxAttempts: this.options.maxAttempts,
+                  baseBackoffMs: this.options.baseBackoffMs,
+                  maxBackoffMs: this.options.maxBackoffMs,
+                }),
           maxAttempts: this.options.maxAttempts,
         });
         failed += 1;

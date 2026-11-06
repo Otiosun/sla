@@ -13,7 +13,6 @@ import {
   type PlayerId,
 } from "../../shared-kernel/ids.js";
 import { err, ok, type Result } from "../../shared-kernel/result.js";
-import { encounterConditionsAllow } from "../catalog/encounter-contracts.js";
 import type {
   CreateEncounterInput,
   EncounterMutationInput,
@@ -39,6 +38,7 @@ import {
 } from "./generation.js";
 import { resolveEncounterRulesetPolicy } from "./policy.js";
 import type { EncounterRepository, EncounterSeedProvider, EncounterTransaction } from "./ports.js";
+import { resolveSearchEntries } from "./search-entries.js";
 import { encounterStateMachine } from "./state.js";
 
 const encounterCreateScopeResult = parseIdempotencyScope("encounter.create");
@@ -174,38 +174,29 @@ export class EncounterService {
         input.forcedFormId !== undefined &&
         input.forcedLevel !== undefined &&
         input.encounterTableSlug === undefined;
-      const unlocks = new Set(context.unlockKeys);
       let entries: EncounterTableRecord["entries"] = [];
-
+      if (
+        input.searchTarget !== undefined &&
+        (fullyDirectedSpawn ||
+          input.forcedFormId !== undefined ||
+          input.forcedLevel !== undefined ||
+          input.forcedShiny !== undefined ||
+          spawnQuantity !== 1 ||
+          participants.length !== 1)
+      ) {
+        return err(
+          encounterValidationError("Search targets cannot be combined with spawn overrides"),
+        );
+      }
       if (!fullyDirectedSpawn) {
-        const allTables = await transaction.tables(content.contentReleaseId, context.areaId);
-        const eligibleTables = allTables.filter(
-          (table) =>
-            table.active &&
-            encounterConditionsAllow(table.conditions, unlocks, input.environment ?? {}) &&
-            (input.encounterTableSlug === undefined || table.slug === input.encounterTableSlug),
+        const selected = await resolveSearchEntries(
+          transaction,
+          content.contentReleaseId,
+          context,
+          input,
         );
-        if (eligibleTables.length === 0) {
-          return err(encounterNotReady("No eligible encounter table exists for the current area"));
-        }
-        if (eligibleTables.length > 1 && input.encounterTableSlug === undefined) {
-          return err(
-            encounterNotReady(
-              "Multiple encounter tables are eligible; an explicit encounterTableSlug is required",
-            ),
-          );
-        }
-        const table = eligibleTables[0];
-        if (table === undefined)
-          return err(encounterNotReady("Encounter table could not be resolved"));
-        entries = table.entries.filter(
-          (entry) =>
-            entry.active &&
-            encounterConditionsAllow(entry.conditions, unlocks, input.environment ?? {}),
-        );
-        if (entries.length === 0) {
-          return err(encounterNotReady("Encounter table has no eligible active entries"));
-        }
+        if (!selected.ok) return selected;
+        entries = selected.value;
       }
 
       const encounterId = createEncounterId();

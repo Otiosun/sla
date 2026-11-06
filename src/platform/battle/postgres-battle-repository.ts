@@ -24,6 +24,7 @@ import {
 } from "../../modules/catalog/contracts.js";
 import type { WildPokemonSnapshot } from "../../modules/encounter/contracts.js";
 import { withTransaction } from "../db/transaction.js";
+import { settleExpeditionBattle } from "../exploration/expedition-blackout.js";
 import { initializeParticipantControllerInTransaction } from "./postgres-battle-participant-controller-repository.js";
 import { persistPlayerBattleState } from "./postgres-battle-player-state-writeback.js";
 import {
@@ -35,6 +36,9 @@ import { PostgresPvpTurnResolutionTransaction } from "./postgres-pvp-turn-resolu
 
 export interface ControllerBattleInitializationConfig {
   readonly turnWindowTtlMs: number;
+  readonly pvpGroupTimingEnabled?: boolean;
+  readonly expeditionSettlementEnabled?: boolean;
+  readonly operationalExpeditionPlayers?: ReadonlySet<string>;
   readonly clock?: () => Date;
 }
 
@@ -160,7 +164,12 @@ class PostgresBattleTransaction implements BattleTransaction {
     private readonly client: PoolClient,
     private readonly controllerConfig?: ControllerBattleInitializationConfig,
   ) {
-    this.turnResolution = new PostgresPvpTurnResolutionTransaction(client);
+    this.turnResolution = new PostgresPvpTurnResolutionTransaction(
+      client,
+      controllerConfig?.pvpGroupTimingEnabled,
+      controllerConfig?.expeditionSettlementEnabled,
+      controllerConfig?.operationalExpeditionPlayers,
+    );
   }
 
   public loadTurnWindowByBattleVersion(battleId: string, version: number) {
@@ -832,6 +841,30 @@ class PostgresBattleTransaction implements BattleTransaction {
       );
     }
 
+    if (
+      this.controllerConfig?.expeditionSettlementEnabled &&
+      input.nextState.battleType === "WILD"
+    ) {
+      if (input.nextState.status === "WON" || input.nextState.status === "DRAW") {
+        for (const playerId of [
+          ...new Set(input.nextState.sides.flatMap((side) => side.playerId ?? [])),
+        ].sort()) {
+          await settleExpeditionBattle(
+            this.client,
+            playerId,
+            input.battleId,
+            false,
+            this.controllerConfig?.operationalExpeditionPlayers,
+          );
+        }
+      }
+      if (input.nextState.status === "LOST") {
+        await this.client.query(
+          "INSERT INTO battle_defeat_aftermath(battle_id,battle_version) VALUES($1,$2)",
+          [input.battleId, input.nextState.version],
+        );
+      }
+    }
     return { kind: "PERSISTED", state: input.nextState };
   }
 }

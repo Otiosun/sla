@@ -1,12 +1,12 @@
 import type { PoolClient } from "pg";
-import type { Clock } from "../clock/index.js";
-import { encounterRepositoryWithinTransaction } from "../encounter/postgres-encounter-repository.js";
-import { EncounterService } from "../../modules/encounter/service.js";
 import type { EncounterSeedProvider } from "../../modules/encounter/ports.js";
+import { EncounterService } from "../../modules/encounter/service.js";
+import type { ExpeditionSnapshot } from "../../modules/exploration/expedition-state.js";
 import type { FeatureAvailability } from "../../shared-kernel/gates.js";
 import { parsePlayerId } from "../../shared-kernel/ids.js";
 import { ok, type Result } from "../../shared-kernel/result.js";
-import type { ExpeditionSnapshot } from "../../modules/exploration/expedition-state.js";
+import type { Clock } from "../clock/index.js";
+import { encounterRepositoryWithinTransaction } from "../encounter/postgres-encounter-repository.js";
 
 /**
  * The encounter-producing arm of a free search, and nothing else.
@@ -26,8 +26,9 @@ export function createDirectEncounterEffect(deps: {
 }): (
   client: PoolClient,
   expedition: ExpeditionSnapshot,
+  target?: { readonly speciesSlug: string; readonly followTrail?: boolean },
 ) => Promise<Result<{ readonly effectRef: string }>> {
-  return async (client, expedition) => {
+  return async (client, expedition, target) => {
     const id = parsePlayerId(expedition.playerId);
     if (!id.ok) return id;
     const service = new EncounterService(
@@ -39,6 +40,7 @@ export function createDirectEncounterEffect(deps: {
     const encounter = await service.createOrReplay({
       playerId: id.value,
       idempotencyKey: `solo-expedition:${expedition.expeditionId}:search:${expedition.revision.toString()}`,
+      ...(target === undefined ? {} : { searchTarget: target }),
       environment: {
         timeOfDay: expedition.period,
         surface: "LAND",

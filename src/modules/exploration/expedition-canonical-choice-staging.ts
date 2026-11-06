@@ -1,20 +1,21 @@
-import type { PostgresExpeditionQuotedEncounterProof } from "../../platform/exploration/postgres-expedition-quoted-encounter-proof.js";
-import type { PostgresExpeditionIssuedMenuReplyProof } from "../../platform/exploration/postgres-expedition-issued-menu-reply-proof.js";
+import type { PostgresExpeditionBattleConfirmationRecovery } from "../../platform/exploration/postgres-expedition-battle-confirmation-recovery.js";
 import type { PostgresExpeditionCaptureConfirmationRecovery } from "../../platform/exploration/postgres-expedition-capture-confirmation-recovery.js";
-import { expeditionCaptureConfirmation } from "./expedition-capture-confirmation.js";
+import type { PostgresExpeditionIgnoreConfirmationRecovery } from "../../platform/exploration/postgres-expedition-ignore-confirmation-recovery.js";
+import type { PostgresExpeditionIssuedMenuReplyProof } from "../../platform/exploration/postgres-expedition-issued-menu-reply-proof.js";
+import type { PostgresExpeditionOfflineBattleStart } from "../../platform/exploration/postgres-expedition-offline-battle-start.js";
+import type { PostgresExpeditionQuotedEncounterProof } from "../../platform/exploration/postgres-expedition-quoted-encounter-proof.js";
 import { parseCorrelationId } from "../../shared-kernel/ids.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
+import type { CombatSceneGate } from "../battle/combat-scene-gate.js";
 import type { PveBattleStartService } from "../battle/pve-battle-start.js";
-import type { PostgresExpeditionOfflineBattleStart } from "../../platform/exploration/postgres-expedition-offline-battle-start.js";
-import type { PostgresExpeditionBattleConfirmationRecovery } from "../../platform/exploration/postgres-expedition-battle-confirmation-recovery.js";
-import { incomingMessageFingerprint } from "../messaging/contracts.js";
-import type { ExpeditionIncidentalIgnoreStagingAction } from "./expedition-incidental-ignore-staging.js";
-import type { PostgresExpeditionIgnoreConfirmationRecovery } from "../../platform/exploration/postgres-expedition-ignore-confirmation-recovery.js";
 import type { CaptureService } from "../capture/service.js";
 import type { EncounterOperationalReadService } from "../encounter/operational-read-service.js";
 import type { MessageHandlerContext, MessageHandlerResult } from "../messaging/contracts.js";
+import { incomingMessageFingerprint } from "../messaging/contracts.js";
 import type { MessageConversationResolver } from "../messaging/router.js";
 import type { PlayerRegistrationService } from "../player/registration-service.js";
+import { expeditionCaptureConfirmation } from "./expedition-capture-confirmation.js";
+import type { ExpeditionIncidentalIgnoreStagingAction } from "./expedition-incidental-ignore-staging.js";
 
 /**
  * Explicit staging-only mechanical adapter. Not registered by the operational
@@ -41,6 +42,7 @@ export class ExpeditionCanonicalChoiceStagingResolver implements MessageConversa
     private readonly ignoreRecovery?: Pick<PostgresExpeditionIgnoreConfirmationRecovery, "resolve">,
     private readonly battle?: Pick<PostgresExpeditionOfflineBattleStart, "execute">,
     private readonly battleRecovery?: Pick<PostgresExpeditionBattleConfirmationRecovery, "resolve">,
+    private readonly sceneGate?: Pick<CombatSceneGate, "receive">,
   ) {}
 
   private battleConfirmation(input: {
@@ -97,7 +99,10 @@ export class ExpeditionCanonicalChoiceStagingResolver implements MessageConversa
     };
   }
 
-  async resolve(context: MessageHandlerContext): Promise<Result<MessageHandlerResult | null>> {
+  async resolve(
+    context: MessageHandlerContext,
+    sceneAuthorized = false,
+  ): Promise<Result<MessageHandlerResult | null>> {
     const choice = context.message.text?.trim() ?? "";
     if (
       (!/^[1-4]$/u.test(choice) && !(choice === "0" && this.ignore !== undefined)) ||
@@ -283,6 +288,9 @@ export class ExpeditionCanonicalChoiceStagingResolver implements MessageConversa
     }
     const correlation = parseCorrelationId(context.correlationId);
     if (!correlation.ok) return correlation;
+    if (this.sceneGate !== undefined && !sceneAuthorized) {
+      return this.sceneGate.receive(context, { route: "EXPEDITION", context });
+    }
 
     // The CaptureService owns RNG, actual inventory consumption, Encounter
     // CAS, Pokédex, party placement and idempotent attempt replay.

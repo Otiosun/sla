@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { Pool } from "pg";
+import { expeditionOperationAllowed } from "../../modules/exploration/expedition-runtime-audience.js";
 import {
   incomingMessageFingerprint,
   type MessageHandlerContext,
@@ -7,7 +8,10 @@ import {
 import type { PlayerId } from "../../shared-kernel/ids.js";
 import { appError, err, ok, type Result } from "../../shared-kernel/result.js";
 import type { StoredSearchOutcome } from "./expedition-search-outcome-effect.js";
-import type { VerifiedExpeditionSearchEncounterPreview } from "./postgres-expedition-search-encounter-preview.js";
+import {
+  readCommittedExpeditionSearchEncounter,
+  type VerifiedExpeditionSearchEncounterPreview,
+} from "./postgres-expedition-search-encounter-preview.js";
 
 interface RecoveryRow {
   readonly player_id: string;
@@ -18,6 +22,7 @@ interface RecoveryRow {
   readonly result_id: string;
   readonly followed_outcome_id: string;
   readonly encounter_id: string;
+  readonly area_id: string;
   readonly species_name: string;
   readonly encounter_level: number;
   readonly shiny: boolean;
@@ -29,6 +34,7 @@ interface RecoveryRow {
 export interface RecoveredTrailConfirmation {
   readonly outcome: StoredSearchOutcome;
   readonly encounterPreview: VerifiedExpeditionSearchEncounterPreview;
+  readonly historical?: boolean;
   readonly elapsedMinutes: number;
   readonly consumedWeeklySlot: false;
 }
@@ -45,9 +51,7 @@ export class PostgresExpeditionTrailConfirmationRecovery {
   }): Promise<Result<RecoveredTrailConfirmation | null>> {
     const message = input.context.message;
     if (
-      process.env.APP_ENV !== "test" ||
-      process.env.NODE_ENV !== "test" ||
-      process.env.WHATSAPP_ENABLED !== "false" ||
+      !expeditionOperationAllowed(input.playerId) ||
       message.provider !== "baileys" ||
       !/^\/explorar\s+(?:seguir(?:\s+rastros)?|rastros)$/iu.test(message.text?.trim() ?? "")
     ) {
@@ -59,7 +63,7 @@ export class PostgresExpeditionTrailConfirmationRecovery {
               receipt.result->'expedition'->>'revision' AS result_revision,
               follow.source_outcome_id::text, follow.id::text AS result_id,
               follow.followed_outcome_id::text,follow.encounter_id::text,
-              follow.species_name, follow.encounter_level,follow.shiny,
+              encounter.area_id::text, follow.species_name, follow.encounter_level,follow.shiny,
               receipt.result->'expedition'->>'elapsedMinutes' AS elapsed_minutes,
               (receipt.result->>'consumedWeeklySlot')::boolean AS consumed_slot,
               receipt.fingerprint
@@ -155,7 +159,15 @@ export class PostgresExpeditionTrailConfirmationRecovery {
     ) {
       return err(appError("FLOW_BLOCKED", "Committed trail evidence is inconsistent"));
     }
+    const committed = await readCommittedExpeditionSearchEncounter(this.pool, {
+      playerId: input.playerId,
+      areaId: row.area_id,
+      outcomeId: row.followed_outcome_id,
+      encounterId: row.encounter_id,
+    });
+    if (!committed.ok) return committed;
     return ok({
+      historical: !committed.value.actionable,
       outcome: {
         outcomeId: row.followed_outcome_id,
         playerId: input.playerId,
