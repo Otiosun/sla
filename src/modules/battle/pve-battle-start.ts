@@ -300,7 +300,7 @@ export function createPveBattleFinishWhatsAppRoute(
     aliases: ["encerrarbatalha", "cancelarbatalha", "finalizarencontro", "encerrarencontro"],
     rateLimitClass: "SENSITIVE",
     policy: {
-      requiredGroupCapabilities: ["pve"],
+      requiredAnyGroupCapabilities: ["pve", "world"],
       requiredAdminCapability: "encounter.support",
     },
     handler: new FunctionalHandler(async (context) => {
