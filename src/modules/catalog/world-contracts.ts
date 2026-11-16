@@ -91,6 +91,8 @@ export const ConnectionAccessRuleSchema = z
     schemaVersion: z.literal(1),
     requiredUnlockKeys: z.array(unlockKeySchema).max(32),
     travelSeconds: z.number().int().min(5).max(600).optional(),
+    /** Author-approved duration on the expedition clock; never travelSeconds. */
+    explorationMinutes: z.number().int().min(1).max(720).optional(),
   })
   .strict();
 export type ConnectionAccessRule = z.infer<typeof ConnectionAccessRuleSchema>;

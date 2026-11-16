@@ -30,6 +30,8 @@ import {
 } from "../modules/battle/pve-scene-whatsapp.js";
 import { CaptureService } from "../modules/capture/service.js";
 import { IncidentalGameGroupAdmission } from "../modules/exploration/expedition-incidental-game-group-admission.js";
+import { ExpeditionCanonicalChoiceStagingResolver } from "../modules/exploration/expedition-canonical-choice-staging.js";
+import { ExpeditionIncidentalIgnoreStagingAction } from "../modules/exploration/expedition-incidental-ignore-staging.js";
 import {
   createExpeditionV4ReadOnlyRoutes,
   createExpeditionV4StagingPreparationRoutes,
@@ -87,6 +89,7 @@ import { createHubWhatsAppRoutes } from "../modules/player-portal/whatsapp-handl
 import { ProgressionService } from "../modules/progression/service.js";
 import { createProgressionWhatsAppRoutes } from "../modules/progression/whatsapp-handlers.js";
 import { PvpService } from "../modules/pvp/service.js";
+import { initialPvpTiming } from "../modules/pvp/turn-window-policy.js";
 import { createPvpWhatsAppRoutes } from "../modules/pvp/whatsapp-handlers.js";
 import { AuditedRegistrationReviewService } from "../modules/registration/admin-review-service.js";
 import { createRegistrationAdminWhatsAppRoutes } from "../modules/registration/admin-review-whatsapp.js";
@@ -136,9 +139,26 @@ import { PostgresCompetitiveSpawnRepository } from "../platform/competitive-spaw
 import { PostgresCompetitiveSpawnRewardRecoveryRepository } from "../platform/competitive-spawn/postgres-competitive-spawn-reward-recovery.js";
 import { PostgresCompetitiveSpawnSettingsRepository } from "../platform/competitive-spawn/postgres-competitive-spawn-settings-repository.js";
 import { PostgresEconomyRepository } from "../platform/economy/postgres-economy-repository.js";
+import { PostgresExpeditionV4EventHistoryReader } from "../platform/exploration/postgres-expedition-v4-event-history-reader.js";
 import { PostgresExpeditionV4StatusReader } from "../platform/exploration/postgres-expedition-v4-status-reader.js";
+import { PostgresExpeditionV4StagingTravel } from "../platform/exploration/postgres-expedition-v4-travel.js";
+import { PostgresExpeditionTravelConfirmationRecovery } from "../platform/exploration/postgres-expedition-travel-confirmation-recovery.js";
 import { PostgresExpeditionRepository } from "../platform/exploration/postgres-expedition-repository.js";
+import { PostgresExpeditionEndConfirmationRecovery } from "../platform/exploration/postgres-expedition-end-confirmation-recovery.js";
+import { PostgresExpeditionQuotedEncounterProof } from "../platform/exploration/postgres-expedition-quoted-encounter-proof.js";
+import { PostgresExpeditionIssuedMenuReplyProof } from "../platform/exploration/postgres-expedition-issued-menu-reply-proof.js";
+import { PostgresExpeditionCaptureConfirmationRecovery } from "../platform/exploration/postgres-expedition-capture-confirmation-recovery.js";
+import { PostgresExpeditionIgnoreConfirmationRecovery } from "../platform/exploration/postgres-expedition-ignore-confirmation-recovery.js";
+import { PostgresExpeditionBattleConfirmationRecovery } from "../platform/exploration/postgres-expedition-battle-confirmation-recovery.js";
+import { PostgresExpeditionOfflineBattleStart } from "../platform/exploration/postgres-expedition-offline-battle-start.js";
 import { PostgresExpeditionV4StagingSearch } from "../platform/exploration/postgres-expedition-v4-search.js";
+import { PostgresExpeditionV4StagingTrailFollow } from "../platform/exploration/postgres-expedition-v4-trail.js";
+import { PostgresExpeditionTrailConfirmationRecovery } from "../platform/exploration/postgres-expedition-trail-confirmation-recovery.js";
+import { PostgresExpeditionResourceConfirmationRecovery } from "../platform/exploration/postgres-expedition-resource-confirmation-recovery.js";
+import {
+  PublishedResourceLootPolicy,
+  PostgresExpeditionV4StagingResourceSearch,
+} from "../platform/exploration/postgres-expedition-v4-resources.js";
 import { PublishedSearchOutcomePolicy } from "../platform/exploration/expedition-published-outcome-policy.js";
 import { createDirectEncounterEffect } from "../platform/exploration/expedition-direct-encounter-effect.js";
 import { PostgresEncounterRepository } from "../platform/encounter/postgres-encounter-repository.js";
@@ -165,6 +185,7 @@ import { PostgresRegistrationRepository } from "../platform/registration/postgre
 import { PostgresRegistrationSetupLoader } from "../platform/registration/postgres-registration-setup-loader.js";
 import { RegistrationReviewDeliveryPreparation } from "../platform/registration/registration-review-delivery-preparation.js";
 import { AesEncounterSeedProvider } from "../platform/rng/encrypted-seed-provider.js";
+import { AesBattleSeedReader } from "../platform/rng/battle-seed-reader.js";
 import { CryptoRandomSource } from "../platform/rng/index.js";
 import { PostgresWorldRepository } from "../platform/world/postgres-world-repository.js";
 import { PostgresFishingAttemptRepository } from "../platform/world-services/postgres-fishing-attempt-repository.js";
@@ -230,7 +251,56 @@ export function createOperationalMessagingComposition(
   explorationPreviewTimeZone: string | null = null,
   explorationStagingPreparationEnabled = false,
   explorationStagingSearchSecret: Uint8Array | null = null,
+  explorationOfflineChoicesEnabled = false,
+  explorationStagingResourcesEnabled = false,
+  explorationStagingTrailEnabled = false,
 ): OperationalMessagingComposition {
+  // Development integration is separate from local installation and real UAT.
+  // Never permit these draft-schema writes or private quoted actions in a
+  // live Baileys runtime, even if an opt-in was passed accidentally.
+  if (
+    explorationOfflineChoicesEnabled &&
+    (process.env.APP_ENV !== "test" ||
+      process.env.NODE_ENV !== "test" ||
+      process.env.WHATSAPP_ENABLED !== "false")
+  ) {
+    throw new Error("Offline V4 choices require isolated non-Baileys test mode");
+  }
+  if (
+    explorationOfflineChoicesEnabled &&
+    (!explorationStagingPreparationEnabled ||
+      explorationPreviewTimeZone === null ||
+      explorationStagingSearchSecret === null ||
+      encounterRngConfig === null ||
+      pveBattleConfig === null)
+  ) {
+    throw new Error("Offline V4 choices require complete staging exploration and PvE dependencies");
+  }
+  if (
+    explorationStagingTrailEnabled &&
+    (process.env.APP_ENV !== "test" ||
+      process.env.NODE_ENV !== "test" ||
+      process.env.WHATSAPP_ENABLED !== "false" ||
+      !explorationOfflineChoicesEnabled ||
+      !explorationStagingPreparationEnabled ||
+      explorationPreviewTimeZone === null ||
+      explorationStagingSearchSecret === null ||
+      encounterRngConfig === null ||
+      pveBattleConfig === null)
+  ) {
+    throw new Error("Following trails requires complete isolated Encounter/PvE/Capture staging");
+  }
+  if (
+    explorationStagingResourcesEnabled &&
+    (process.env.APP_ENV !== "test" ||
+      process.env.NODE_ENV !== "test" ||
+      process.env.WHATSAPP_ENABLED !== "false" ||
+      !explorationStagingPreparationEnabled ||
+      explorationPreviewTimeZone === null ||
+      explorationStagingSearchSecret === null)
+  ) {
+    throw new Error("Resources require explicit test-only staging, calendar and published secret");
+  }
   if (explorationStagingPreparationEnabled && explorationPreviewTimeZone === null) {
     throw new Error("Staging preparation requires a separate explicit expedition calendar");
   }
@@ -264,10 +334,7 @@ export function createOperationalMessagingComposition(
       new AesEncounterSeedProvider(key, keyVersion),
       new SystemClock(),
       { enabled: true, reason: null },
-      {
-        challengeTtlMs: pveBattleConfig.turnWindowTtlMs,
-        turnWindowTtlMs: pveBattleConfig.turnWindowTtlMs,
-      },
+      initialPvpTiming(pveBattleConfig.turnWindowTtlMs),
       new PostgresPvpStartRepository(pool, new AesEncounterSeedProvider(key, keyVersion)),
     );
     return {
@@ -508,6 +575,61 @@ export function createOperationalMessagingComposition(
     martAvailability,
     pcStorage: pokemonPcStorage,
   });
+  // Optional development composition: connect the ACTUAL quoted-message
+  // resolver to canonical Capture, Ignore and PvE transactional services.
+  // No production constructor supplies this opt-in, and every mutation port
+  // separately rejects non-test environments.
+  const offlineExpeditionChoices =
+    !explorationOfflineChoicesEnabled ||
+    encounterRngConfig === null ||
+    pveBattleConfig === null ||
+    pveBattle === null ||
+    encounterWriter === undefined ||
+    capture === undefined ||
+    explorationPreviewTimeZone === null
+      ? null
+      : (() => {
+          const seed = new AesEncounterSeedProvider(
+            encounterRngConfig.encryptionKey,
+            encounterRngConfig.encryptionKeyVersion,
+          );
+          return new ExpeditionCanonicalChoiceStagingResolver(
+            playerRegistration,
+            new PostgresExpeditionQuotedEncounterProof(pool),
+            encounter,
+            new PostgresExpeditionIssuedMenuReplyProof(pool),
+            capture,
+            new PveBattleStartService(
+              encounterWriter,
+              pveBattle.battle,
+              new PostgresPveBattleStartRollback(pool),
+            ),
+            new PostgresExpeditionCaptureConfirmationRecovery(pool),
+            new ExpeditionIncidentalIgnoreStagingAction(
+              new PostgresExpeditionRepository(pool, clock, explorationPreviewTimeZone),
+              seed,
+              clock,
+              { enabled: true, reason: null },
+            ),
+            new PostgresExpeditionIgnoreConfirmationRecovery(pool),
+            new PostgresExpeditionOfflineBattleStart(
+              pool,
+              seed,
+              new AesBattleSeedReader(pveBattleConfig.encryptionKeys),
+              clock,
+              { enabled: true, reason: null },
+            ),
+            new PostgresExpeditionBattleConfirmationRecovery(pool),
+          );
+        })();
+  const isOfflineExpeditionReply = (message: IncomingMessage): boolean =>
+    offlineExpeditionChoices !== null &&
+    message.provider === "baileys" &&
+    message.chatRef === message.senderRef &&
+    /^[0-9]{5,20}@(s\.whatsapp\.net|lid)$/u.test(message.senderRef) &&
+    /^[0-4]$/u.test(message.text?.trim() ?? "") &&
+    message.replyToExternalMessageId !== null;
+
   const nonReceptionConversationResolver = {
     resolve: async (context: Parameters<typeof receptionConversationResolver.resolve>[0]) => {
       const competitiveResult = await competitiveSpawn.resolve(context);
@@ -518,6 +640,13 @@ export function createOperationalMessagingComposition(
         const sceneResult = await pveScene.resolve(context);
         if (!sceneResult.ok) return sceneResult;
         downstream = sceneResult.value;
+      }
+      if (downstream === null && isOfflineExpeditionReply(context.message)) {
+        const expedition = await offlineExpeditionChoices?.resolve(context);
+        if (expedition !== undefined) {
+          if (!expedition.ok) return expedition;
+          downstream = expedition.value;
+        }
       }
       if (downstream === null) {
         const worldServiceResult = await worldServiceConversationResolver.resolve(context);
@@ -957,6 +1086,35 @@ export function createOperationalMessagingComposition(
             return createExpeditionV4StagingSearchRoutes({
               ...dependencies,
               preparation,
+              travel: new PostgresExpeditionV4StagingTravel(preparation, clock),
+              travelRecovery: new PostgresExpeditionTravelConfirmationRecovery(pool),
+              summary: dependencies.facts,
+              history: new PostgresExpeditionV4EventHistoryReader(pool),
+              endRecovery: new PostgresExpeditionEndConfirmationRecovery(pool),
+              ...(explorationStagingTrailEnabled
+                ? {
+                    trail: new PostgresExpeditionV4StagingTrailFollow(
+                      pool,
+                      preparation,
+                      createDirectEncounterEffect({
+                        seedProvider,
+                        clock,
+                        feature: { enabled: true, reason: null },
+                      }),
+                    ),
+                    trailRecovery: new PostgresExpeditionTrailConfirmationRecovery(pool),
+                  }
+                : {}),
+              ...(explorationStagingResourcesEnabled
+                ? {
+                    resources: new PostgresExpeditionV4StagingResourceSearch(
+                      pool,
+                      preparation,
+                      new PublishedResourceLootPolicy(explorationStagingSearchSecret),
+                    ),
+                    resourceRecovery: new PostgresExpeditionResourceConfirmationRecovery(pool),
+                  }
+                : {}),
               search: new PostgresExpeditionV4StagingSearch(
                 pool,
                 preparation,
@@ -1067,6 +1225,7 @@ export function createOperationalMessagingComposition(
     onMembership: (event) => receptionMembership.handle(event),
     admitCommand: (message) => router.admitsCommand(message),
     admitFreeform: async (message) =>
+      isOfflineExpeditionReply(message) ||
       (await competitiveSpawn.admits(message)) ||
       (await registrationConversationResolver.admits(message)) ||
       worldServiceConversationResolver.admits(message),
@@ -1109,6 +1268,7 @@ export function createOperationalMessagingComposition(
         return receptionConversationResolver.admits(message);
       }
       return (
+        isOfflineExpeditionReply(message) ||
         (await competitiveSpawn.admits(message)) ||
         (await registrationConversationResolver.admits(message)) ||
         worldServiceConversationResolver.admits(message)
@@ -1195,6 +1355,9 @@ export function createOperationalOutboxWorker(
       maxAttempts: 8,
       baseBackoffMs: 1_000,
       maxBackoffMs: 60_000,
+      // Only the isolated post-SENT integration opts into quarantine:
+      // never retry a delivery whose outcome is uncertain after adapter.send.
+      ...(postSentHook === undefined ? {} : { quarantineUnknownDelivery: true }),
     },
     deliveryPreparation,
     postSentHook,

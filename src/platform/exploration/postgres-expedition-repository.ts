@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import type { ExpeditionPeriod } from "../../modules/exploration/expedition-clock.js";
+import { ConnectionAccessRuleSchema } from "../../modules/catalog/world-contracts.js";
+import type { TravelResult } from "../../modules/world/contracts.js";
 import {
   advanceExpedition,
   changeExpeditionPeriod,
@@ -35,6 +37,37 @@ export interface StoredSearchActionTransition extends StoredExpeditionTransition
  * effects using the provided client; network calls / independent DB pools are
  * forbidden because they cannot roll back with expedition quota and minutes.
  */
+export interface ExecuteIgnoreIncidentalInput {
+  readonly playerId: PlayerId;
+  readonly outcomeId: string;
+  readonly encounterId: string;
+  readonly expectedEncounterRevision: bigint;
+  readonly idempotencyKey: string;
+  /** Caller invokes EncounterService.flee through encounterRepositoryWithinTransaction(client). */
+  readonly flee: (
+    client: PoolClient,
+  ) => Promise<Result<{ readonly status: string; readonly revision: bigint }>>;
+}
+
+/** A single, atomic World + expedition action. Duration comes from PUBLISHED content. */
+export interface ExecuteExpeditionTravelInput {
+  readonly playerId: PlayerId;
+  readonly expeditionId: string;
+  readonly expectedRevision: bigint;
+  readonly expectedWorldRevision: bigint;
+  readonly destinationAreaId: string;
+  readonly idempotencyKey: string;
+  readonly travel: (
+    client: PoolClient,
+    input: {
+      readonly playerId: PlayerId;
+      readonly destinationAreaId: string;
+      readonly expectedRevision: bigint;
+      readonly idempotencyKey: string;
+    },
+  ) => Promise<Result<TravelResult>>;
+}
+
 export interface ExecuteSearchActionInput {
   readonly playerId: PlayerId;
   readonly expeditionId: string;
@@ -190,7 +223,16 @@ async function writeReceipt(
   playerId: PlayerId,
   key: string,
   expeditionId: string,
-  operation: "PREPARE" | "ADVANCE" | "END" | "CHANGE_PERIOD" | "ACTION_SEARCH_FREE",
+  operation:
+    | "PREPARE"
+    | "ADVANCE"
+    | "END"
+    | "CHANGE_PERIOD"
+    | "ACTION_SEARCH_FREE"
+    | "ACTION_IGNORE_INCIDENTAL"
+    | "ACTION_TRAVEL"
+    | "ACTION_RESOURCE_SEARCH"
+    | "ACTION_FOLLOW_TRAIL",
   inputFingerprint: string,
   transition: ExpeditionTransition,
   effectRef?: string,
@@ -220,7 +262,7 @@ async function persistSnapshot(
   expectedRevision: bigint,
 ): Promise<void> {
   const updated = await client.query(
-    "UPDATE solo_expeditions SET period=$3,phase=$4,elapsed_minutes=$5,consumed_week_key=$6::date,end_reason=$7,revision=$8::bigint,updated_at=now() WHERE id=$1 AND player_id=$2 AND revision=$9::bigint",
+    "UPDATE solo_expeditions SET period=$3,phase=$4,elapsed_minutes=$5,consumed_week_key=$6::date,end_reason=$7,revision=$8::bigint,area_id=$10,updated_at=now() WHERE id=$1 AND player_id=$2 AND revision=$9::bigint",
     [
       value.expeditionId,
       value.playerId,
@@ -231,6 +273,7 @@ async function persistSnapshot(
       value.endReason,
       value.revision.toString(),
       expectedRevision.toString(),
+      value.areaId,
     ],
   );
   if (updated.rowCount !== 1) throw new Error("Expedition row was lost during locked transition");
@@ -415,21 +458,218 @@ export class PostgresExpeditionRepository {
   }
 
   /**
+   * Staging-only atomic travel. The same PoolClient, player row lock, pinned
+   * PUBLISHED connection and WorldService.travel receipt must commit with
+   * the expedition minute debit. Absent explorationMinutes fails closed.
+   */
+  public async executeTravel(
+    input: ExecuteExpeditionTravelInput,
+  ): Promise<Result<StoredExpeditionTransition>> {
+    const validKey = validateKey(input.idempotencyKey);
+    if (!validKey.ok) return validKey;
+    if (!/^[a-f0-9-]{36}$/iu.test(input.destinationAreaId) || input.expectedWorldRevision < 0n) {
+      return err(appError("VALIDATION_FAILED", "Invalid expedition travel destination/revision"));
+    }
+    const inputFingerprint = fingerprint([
+      "ACTION_TRAVEL",
+      input.expeditionId,
+      input.expectedRevision.toString(),
+      input.expectedWorldRevision.toString(),
+      input.destinationAreaId,
+    ]);
+    try {
+      return await withTransaction(this.pool, async (client) => {
+        const player = await lockedPlayer(client, input.playerId);
+        if (!player.ok) return player;
+        const prior = await replay(client, input.playerId, input.idempotencyKey, inputFingerprint);
+        if (prior !== null) {
+          if (!prior.ok) return prior;
+          if (prior.value.expedition.areaId !== input.destinationAreaId) {
+            return err(appError("FLOW_BLOCKED", "Travel receipt has an unexpected destination"));
+          }
+          return prior;
+        }
+        const original = await lockedExpedition(client, input.playerId, input.expeditionId);
+        if (original === null) return unavailable();
+        const connections = await client.query<{
+          release_id: string;
+          access_rule: unknown;
+        }>(
+          `SELECT release.id::text AS release_id, revision.access_rule
+           FROM player_locations loc
+           JOIN areas source ON source.id=loc.area_id
+           JOIN regions region ON region.id=source.region_id
+           JOIN areas destination ON destination.id=$3
+             AND destination.region_id=region.id
+           JOIN content_release_pointers pointer ON pointer.pointer_key='ACTIVE'
+           JOIN content_releases release
+             ON release.id=pointer.content_release_id AND release.status='PUBLISHED'
+           JOIN rulesets ruleset
+             ON ruleset.id=release.default_ruleset_id AND ruleset.status='PUBLISHED'
+           JOIN region_revisions region_rev
+             ON region_rev.content_release_id=release.id
+            AND region_rev.region_id=region.id AND region_rev.active=TRUE
+           JOIN area_revisions source_rev
+             ON source_rev.content_release_id=release.id
+            AND source_rev.area_id=source.id AND source_rev.active=TRUE
+           JOIN area_revisions dest_rev
+             ON dest_rev.content_release_id=release.id
+            AND dest_rev.area_id=destination.id AND dest_rev.active=TRUE
+           JOIN area_connections connection
+             ON connection.from_area_id=source.id AND connection.to_area_id=destination.id
+           JOIN area_connection_revisions revision
+             ON revision.connection_id=connection.id
+            AND revision.content_release_id=release.id AND revision.active=TRUE
+           WHERE loc.player_id=$1 AND loc.revision=$4::bigint
+             AND source.id=$2 AND region.slug='zhoulia'
+             AND source.slug IN ('vila-dos-arrozais','campos-de-yun')
+             AND destination.slug IN ('vila-dos-arrozais','campos-de-yun')
+           FOR UPDATE OF loc`,
+          [
+            input.playerId,
+            original.areaId,
+            input.destinationAreaId,
+            input.expectedWorldRevision.toString(),
+          ],
+        );
+        if (connections.rows.length !== 1) {
+          return err(appError("FLOW_BLOCKED", "No published authorized expedition road"));
+        }
+        const road = ConnectionAccessRuleSchema.safeParse(connections.rows[0]?.access_rule);
+        if (!road.success || road.data.explorationMinutes === undefined) {
+          return err(appError("FLOW_BLOCKED", "Road lacks author-approved expedition minutes"));
+        }
+        const pending = await client.query(
+          `SELECT 1 FROM encounters WHERE player_id=$1
+           AND status IN ('CREATED','PRESENTED','ENGAGED','CAPTURE_RESOLVING','IN_BATTLE')
+           LIMIT 1`,
+          [input.playerId],
+        );
+        if (pending.rowCount !== 0) {
+          return err(appError("FLOW_BLOCKED", "Resolve the encounter before travelling"));
+        }
+        const week = expeditionWeekKey(this.clock.now(), this.timeZone);
+        const count = await client.query<{ total: string }>(
+          `SELECT count(*)::text AS total FROM solo_expeditions
+           WHERE player_id=$1 AND consumed_week_key=$2::date`,
+          [input.playerId, week],
+        );
+        const transition = advanceExpedition({
+          expedition: original,
+          expectedRevision: input.expectedRevision,
+          minutes: road.data.explorationMinutes,
+          weekKey: week,
+          consumedThisWeek: Number(count.rows[0]?.total ?? "0"),
+        });
+        if (!transition.ok) return transition;
+
+        const travelled = await input.travel(client, {
+          playerId: input.playerId,
+          destinationAreaId: input.destinationAreaId,
+          expectedRevision: input.expectedWorldRevision,
+          idempotencyKey: input.idempotencyKey,
+        });
+        if (!travelled.ok) throw new AbortedSearchAction(travelled.error);
+        if (
+          travelled.value.replayed ||
+          travelled.value.from.playerId !== input.playerId ||
+          travelled.value.from.areaId !== original.areaId ||
+          travelled.value.from.revision !== input.expectedWorldRevision ||
+          travelled.value.to.playerId !== input.playerId ||
+          travelled.value.to.areaId !== input.destinationAreaId ||
+          travelled.value.to.revision !== input.expectedWorldRevision + 1n ||
+          travelled.value.from.contentReleaseId !== connections.rows[0]?.release_id ||
+          travelled.value.to.contentReleaseId !== connections.rows[0]?.release_id
+        ) {
+          throw new AbortedSearchAction(
+            appError("FLOW_BLOCKED", "World travel disagrees with the pinned expedition route"),
+          );
+        }
+        const updated = {
+          ...transition.value,
+          expedition: {
+            ...transition.value.expedition,
+            areaId: input.destinationAreaId,
+          },
+        };
+        await persistSnapshot(client, updated.expedition, original.revision);
+        return ok(
+          await writeReceipt(
+            client,
+            input.playerId,
+            input.idempotencyKey,
+            input.expeditionId,
+            "ACTION_TRAVEL",
+            inputFingerprint,
+            updated,
+          ),
+        );
+      });
+    } catch (error) {
+      if (error instanceof AbortedSearchAction) return err(error.domainError);
+      throw error;
+    }
+  }
+
+  /**
    * A real search-action commit seam: the encounter adapter must persist its
    * effect using this SAME PoolClient. If it refuses/throws, quota, minutes,
    * receipt and all its PG writes roll back together. This is not wired to a
    * WhatsApp command until a canonical Encounter adapter is available.
    */
+  /** A 60-minute resource action; only the explicitly isolated caller may grant items. */
+  public async executeResourceSearch(
+    input: ExecuteSearchActionInput,
+  ): Promise<Result<StoredSearchActionTransition>> {
+    if (
+      process.env.APP_ENV !== "test" ||
+      process.env.NODE_ENV !== "test" ||
+      process.env.WHATSAPP_ENABLED !== "false"
+    ) {
+      return err(appError("FLOW_BLOCKED", "Resource search requires isolated development"));
+    }
+    return this.executeTimedEffect(input, "ACTION_RESOURCE_SEARCH", 60);
+  }
+
+  /**
+   * Follow only the server-persisted source TRAIL. The source identity is
+   * included in the action fingerprint so two different trails cannot share
+   * a WhatsApp idempotency key. All effects stay in the expedition PoolClient.
+   */
+  public async executeFollowTrail(
+    input: ExecuteSearchActionInput & { readonly sourceOutcomeId: string },
+  ): Promise<Result<StoredSearchActionTransition>> {
+    if (
+      process.env.APP_ENV !== "test" ||
+      process.env.NODE_ENV !== "test" ||
+      process.env.WHATSAPP_ENABLED !== "false" ||
+      !/^[a-f0-9-]{36}$/iu.test(input.sourceOutcomeId)
+    ) {
+      return err(appError("FLOW_BLOCKED", "Following trails requires isolated development"));
+    }
+    return this.executeTimedEffect(input, "ACTION_FOLLOW_TRAIL", 15, input.sourceOutcomeId);
+  }
+
   public async executeSearchFree(
     input: ExecuteSearchActionInput,
+  ): Promise<Result<StoredSearchActionTransition>> {
+    return this.executeTimedEffect(input, "ACTION_SEARCH_FREE", 30);
+  }
+
+  private async executeTimedEffect(
+    input: ExecuteSearchActionInput,
+    operation: "ACTION_SEARCH_FREE" | "ACTION_RESOURCE_SEARCH" | "ACTION_FOLLOW_TRAIL",
+    minutes: 15 | 30 | 60,
+    sourceOutcomeId?: string,
   ): Promise<Result<StoredSearchActionTransition>> {
     const validKey = validateKey(input.idempotencyKey);
     if (!validKey.ok) return validKey;
     const inputFingerprint = fingerprint([
-      "ACTION_SEARCH_FREE",
+      operation,
       input.expeditionId,
       input.expectedRevision.toString(),
-      30,
+      minutes,
+      ...(sourceOutcomeId === undefined ? [] : [sourceOutcomeId]),
     ]);
     try {
       return await withTransaction(this.pool, async (client) => {
@@ -483,6 +723,22 @@ export class PostgresExpeditionRepository {
         if (location.rows[0]?.area_id !== original.areaId) {
           return err(appError("FLOW_BLOCKED", "Expedition World location or release changed"));
         }
+        // A search that resolves to NO_SIGNAL would otherwise bypass
+        // EncounterService.create's active-encounter guard and charge 30min.
+        // Block *every* new search while an unresolved encounter exists.
+        // The existing immutable Inbox receipt above remains replayable.
+        const blocked = await client.query(
+          `SELECT 1 FROM encounters
+           WHERE player_id=$1
+             AND status IN ('CREATED','PRESENTED','ENGAGED','CAPTURE_RESOLVING','IN_BATTLE')
+           LIMIT 1`,
+          [input.playerId],
+        );
+        if (blocked.rowCount !== 0) {
+          return err(
+            appError("FLOW_BLOCKED", "Resolve the existing encounter before searching again"),
+          );
+        }
         const week = expeditionWeekKey(this.clock.now(), this.timeZone);
         const used = await client.query<{ count: string }>(
           "SELECT COUNT(*)::text AS count FROM solo_expeditions WHERE player_id=$1 AND consumed_week_key=$2::date",
@@ -491,7 +747,7 @@ export class PostgresExpeditionRepository {
         const transition = advanceExpedition({
           expedition: original,
           expectedRevision: input.expectedRevision,
-          minutes: 30,
+          minutes,
           weekKey: week,
           consumedThisWeek: Number(used.rows[0]?.count ?? "0"),
         });
@@ -516,12 +772,150 @@ export class PostgresExpeditionRepository {
           input.playerId,
           input.idempotencyKey,
           input.expeditionId,
-          "ACTION_SEARCH_FREE",
+          operation,
           inputFingerprint,
           transition.value,
           effectRef,
         );
         return ok({ ...written, effectRef });
+      });
+    } catch (error) {
+      if (error instanceof AbortedSearchAction) return err(error.domainError);
+      throw error;
+    }
+  }
+
+  /**
+   * OFFLINE ONLY. Atomic 10-minute INCIDENTAL Ignore action: the expedition
+   * clock, immutable receipt and canonical EncounterService.flee all use the
+   * SAME PoolClient and commit or roll back together. No separate SQL state
+   * machine for Encounter. Not wired to any operational WhatsApp runtime.
+   *
+   * Authorization of a quoted, SENT ACTIONABLE menu remains a separate,
+   * mandatory caller gate; this method cannot validate a WhatsApp sender.
+   */
+  public async executeIgnoreIncidental(
+    input: ExecuteIgnoreIncidentalInput,
+  ): Promise<Result<StoredSearchActionTransition>> {
+    if (
+      process.env.APP_ENV !== "test" ||
+      process.env.NODE_ENV !== "test" ||
+      process.env.WHATSAPP_ENABLED !== "false"
+    ) {
+      return err(appError("FLOW_BLOCKED", "Ignore requires isolated offline staging"));
+    }
+    const validKey = validateKey(input.idempotencyKey);
+    if (!validKey.ok) return validKey;
+    if (
+      !/^[a-f0-9-]{36}$/iu.test(input.outcomeId) ||
+      !/^[a-f0-9-]{36}$/iu.test(input.encounterId) ||
+      input.expectedEncounterRevision < 0n
+    ) {
+      return err(appError("VALIDATION_FAILED", "Invalid frozen incidental encounter identity"));
+    }
+    const inputFingerprint = fingerprint([
+      "ACTION_IGNORE_INCIDENTAL",
+      input.outcomeId,
+      input.encounterId,
+      input.expectedEncounterRevision.toString(),
+      10,
+    ]);
+    try {
+      return await withTransaction(this.pool, async (client) => {
+        const player = await lockedPlayer(client, input.playerId);
+        if (!player.ok) return player;
+        const prior = await replay(client, input.playerId, input.idempotencyKey, inputFingerprint);
+        if (prior !== null) {
+          return prior.ok ? ok({ ...prior.value, effectRef: input.encounterId }) : prior;
+        }
+        const found = await client.query<{ expedition_id: string }>(
+          `SELECT outcome.expedition_id::text AS expedition_id
+           FROM solo_expedition_search_outcomes outcome
+           JOIN solo_expeditions expedition
+             ON expedition.id=outcome.expedition_id
+            AND expedition.player_id=outcome.player_id
+            AND expedition.phase='ACTIVE'
+           JOIN encounters encounter
+             ON encounter.id=outcome.encounter_id
+            AND encounter.player_id=outcome.player_id
+            AND encounter.area_id=expedition.area_id
+            AND encounter.status='ENGAGED'
+            AND encounter.revision=$4::bigint
+           JOIN player_locations location
+             ON location.player_id=outcome.player_id
+            AND location.area_id=expedition.area_id
+           JOIN content_release_pointers pointer ON pointer.pointer_key='ACTIVE'
+           JOIN content_releases release
+             ON release.id=pointer.content_release_id
+            AND release.status='PUBLISHED'
+            AND release.id=encounter.content_release_id
+           WHERE outcome.id=$1 AND outcome.player_id=$2
+             AND outcome.encounter_id=$3 AND outcome.kind='INCIDENTAL'
+             AND NOT EXISTS (
+               SELECT 1 FROM battles battle
+               WHERE battle.encounter_id=encounter.id
+                 AND battle.status IN ('CREATED','ACTIVE')
+             )
+           LIMIT 2`,
+          [
+            input.outcomeId,
+            input.playerId,
+            input.encounterId,
+            input.expectedEncounterRevision.toString(),
+          ],
+        );
+        if (found.rows.length !== 1 || found.rows[0] === undefined) {
+          return err(appError("FLOW_BLOCKED", "Incidental encounter cannot be ignored now"));
+        }
+        const expeditionId = found.rows[0].expedition_id;
+        const original = await lockedExpedition(client, input.playerId, expeditionId);
+        if (original === null || original.phase !== "ACTIVE") return unavailable();
+        const week = expeditionWeekKey(this.clock.now(), this.timeZone);
+        const transition = advanceExpedition({
+          expedition: original,
+          expectedRevision: original.revision,
+          minutes: 10,
+          weekKey: week,
+          consumedThisWeek: 0,
+        });
+        if (!transition.ok) return transition;
+        const fled = await input.flee(client);
+        if (
+          !fled.ok ||
+          fled.value.status !== "FLED" ||
+          fled.value.revision !== input.expectedEncounterRevision + 1n
+        ) {
+          throw new AbortedSearchAction(
+            fled.ok
+              ? appError("FLOW_BLOCKED", "Canonical flee did not produce the expected revision")
+              : fled.error,
+          );
+        }
+        const persisted = await client.query<{ status: string; revision: string }>(
+          "SELECT status, revision::text AS revision FROM encounters WHERE id=$1 AND player_id=$2",
+          [input.encounterId, input.playerId],
+        );
+        if (
+          persisted.rows.length !== 1 ||
+          persisted.rows[0]?.status !== "FLED" ||
+          persisted.rows[0]?.revision !== (input.expectedEncounterRevision + 1n).toString()
+        ) {
+          throw new AbortedSearchAction(
+            appError("FLOW_BLOCKED", "Canonical flee was not persisted in the shared transaction"),
+          );
+        }
+        await persistSnapshot(client, transition.value.expedition, original.revision);
+        const written = await writeReceipt(
+          client,
+          input.playerId,
+          input.idempotencyKey,
+          expeditionId,
+          "ACTION_IGNORE_INCIDENTAL",
+          inputFingerprint,
+          transition.value,
+          input.encounterId,
+        );
+        return ok({ ...written, effectRef: input.encounterId });
       });
     } catch (error) {
       if (error instanceof AbortedSearchAction) return err(error.domainError);
@@ -590,6 +984,22 @@ export class PostgresExpeditionRepository {
       if (prior !== null) return prior;
       const original = await lockedExpedition(client, input.playerId, input.expeditionId);
       if (original === null) return unavailable();
+      if (input.reason === "VOLUNTARY") {
+        // A voluntary closure must not strand an already displayed wild,
+        // pending capture or live battle. Same player lock as the end receipt.
+        const pending = await client.query(
+          `SELECT 1 FROM encounters
+           WHERE player_id=$1
+             AND status IN ('CREATED','PRESENTED','ENGAGED','CAPTURE_RESOLVING','IN_BATTLE')
+           LIMIT 1`,
+          [input.playerId],
+        );
+        if (pending.rowCount !== 0) {
+          return err(
+            appError("FLOW_BLOCKED", "Resolve the encounter before ending your expedition"),
+          );
+        }
+      }
       const transition = endExpedition({
         expedition: original,
         expectedRevision: input.expectedRevision,

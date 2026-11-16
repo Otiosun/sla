@@ -488,3 +488,19 @@ export class PostgresWorldRepository implements WorldRepository {
     );
   }
 }
+
+/**
+ * Only for callers already holding an outer PostgreSQL transaction.
+ * Never COMMIT or ROLLBACK here. WorldService.travel still enforces its
+ * native published-release, access/unlock, cooldown, revision and ledger
+ * invariants using exactly the expedition action's PoolClient.
+ */
+export function worldRepositoryWithinTransaction(client: PoolClient): WorldRepository {
+  const transaction = new PostgresWorldTransaction(client);
+  return {
+    transaction: async <T>(work: (world: WorldTransaction) => Promise<T>): Promise<T> =>
+      work(transaction),
+    read: async <T>(work: (world: WorldTransaction) => Promise<T>): Promise<T> =>
+      work(transaction),
+  };
+}

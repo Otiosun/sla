@@ -1,6 +1,7 @@
 import type { PendingOutboxMessage } from "../messaging/contracts.js";
 import type { OutboxPostSentHook } from "../messaging/service.js";
 import type { ExpeditionSearchEngagementAfterSent } from "./expedition-search-engagement-after-sent.js";
+import type { PostgresExpeditionReadOnlyMenuIssuer } from "../../platform/exploration/postgres-expedition-readonly-menu-issuer.js";
 import { parsePlayerId } from "../../shared-kernel/ids.js";
 
 /**
@@ -11,8 +12,9 @@ import { parsePlayerId } from "../../shared-kernel/ids.js";
  * verifies status=SENT, sent_at, private destination, player, outcome, encounter,
  * expedition area, and active published release before any encounter transition.
  *
- * Do not compose into the live Baileys runtime. No menu, battle, capture, grant
- * or new random encounter is emitted here.
+ * Do not compose into live Baileys. With an explicit test-only issuer, the
+ * existing encounter is engaged first and only then its immutable ACTIONABLE
+ * menu is issued in a separate transaction. No new encounter is generated.
  */
 export class ExpeditionSearchPostSentHook implements OutboxPostSentHook {
   constructor(
@@ -22,16 +24,20 @@ export class ExpeditionSearchPostSentHook implements OutboxPostSentHook {
       readonly correlationId: string;
       readonly errorCode: string;
     }) => void,
+    private readonly issuedMenu?: Pick<PostgresExpeditionReadOnlyMenuIssuer, "issue">,
   ) {}
 
   async afterSent(
     message: Pick<
       PendingOutboxMessage,
-      "id" | "channel" | "messageType" | "destinationRef" | "payload"
+      "id" | "channel" | "messageType" | "destinationRef" | "payload" | "correlationId"
     >,
   ): Promise<void> {
     const anchor = message.payload.expeditionSearch;
     if (anchor === undefined) return; // Other Outbox messages are unaffected.
+    // ACTIONABLE menus also carry the immutable source outcome. They are NOT
+    // search-result messages and must never recursively issue another menu.
+    if (message.payload.expeditionMenu !== undefined) return;
     if (
       message.channel !== "whatsapp" ||
       message.messageType !== "TEXT" ||
@@ -58,6 +64,17 @@ export class ExpeditionSearchPostSentHook implements OutboxPostSentHook {
       destinationRef: message.destinationRef,
     });
     if (!result.ok) throw new Error("EXPEDITION_POST_SENT_" + result.error.code);
+    if (this.issuedMenu !== undefined) {
+      const issued = await this.issuedMenu.issue({
+        playerId: player.value,
+        outcomeId: anchor.outcomeId,
+        encounterId: anchor.encounterId,
+        expectedEncounterRevision: result.value.encounterRevision,
+        destinationRef: message.destinationRef,
+        correlationId: message.correlationId,
+      });
+      if (!issued.ok) throw new Error("EXPEDITION_POST_SENT_MENU_" + issued.error.code);
+    }
   }
 
   onFailure(message: PendingOutboxMessage, error: unknown): void {

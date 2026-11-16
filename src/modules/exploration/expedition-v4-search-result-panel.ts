@@ -13,6 +13,7 @@ export function renderExpeditionV4SearchResultPanel(input: {
   readonly encounterPreview: VerifiedExpeditionSearchEncounterPreview | null;
   readonly elapsedMinutes: number;
   readonly consumedWeeklySlot: boolean;
+  readonly canFollowTrail?: boolean;
 }): Result<string> {
   const isEncounter = input.kind === "DIRECT" || input.kind === "INCIDENTAL";
   if (
@@ -49,7 +50,11 @@ export function renderExpeditionV4SearchResultPanel(input: {
       break;
     case "TRAIL":
       lines.push("> _Um rastro foi registrado na busca._");
-      lines.push("› _Seguir rastros permanece indisponível nesta prévia._");
+      lines.push(
+        input.canFollowTrail === true
+          ? "› _Seguir os rastros: /explorar seguir ● \`15 min\`. Encontro sujeito ao catálogo publicado._"
+          : "› _Seguir rastros permanece indisponível nesta prévia._",
+      );
       break;
     case "INCIDENTAL":
     case "DIRECT": {

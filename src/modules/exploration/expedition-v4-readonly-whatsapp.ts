@@ -1,5 +1,19 @@
 import type { Clock } from "../../platform/clock/index.js";
 import type { PostgresExpeditionRepository } from "../../platform/exploration/postgres-expedition-repository.js";
+import type { PostgresExpeditionEndConfirmationRecovery } from "../../platform/exploration/postgres-expedition-end-confirmation-recovery.js";
+import type { PostgresExpeditionV4StatusReader } from "../../platform/exploration/postgres-expedition-v4-status-reader.js";
+import type {
+  PostgresExpeditionResourceConfirmationRecovery,
+  RecoveredResourceConfirmation,
+} from "../../platform/exploration/postgres-expedition-resource-confirmation-recovery.js";
+import type { PostgresExpeditionV4EventHistoryReader } from "../../platform/exploration/postgres-expedition-v4-event-history-reader.js";
+import { renderExpeditionV4EventHistoryPanel } from "./expedition-v4-event-history-panel.js";
+import type { PostgresExpeditionV4StagingTrailFollow } from "../../platform/exploration/postgres-expedition-v4-trail.js";
+import type { PostgresExpeditionTrailConfirmationRecovery } from "../../platform/exploration/postgres-expedition-trail-confirmation-recovery.js";
+import { renderExpeditionV4TrailFollowPanel } from "./expedition-v4-trail-follow-panel.js";
+import type { PostgresExpeditionV4StagingResourceSearch } from "../../platform/exploration/postgres-expedition-v4-resources.js";
+import type { PostgresExpeditionV4StagingTravel } from "../../platform/exploration/postgres-expedition-v4-travel.js";
+import type { PostgresExpeditionTravelConfirmationRecovery } from "../../platform/exploration/postgres-expedition-travel-confirmation-recovery.js";
 import type { PostgresExpeditionV4StagingSearch } from "../../platform/exploration/postgres-expedition-v4-search.js";
 import type { StoredSearchOutcome } from "../../platform/exploration/expedition-search-outcome-effect.js";
 import type { PlayerId } from "../../shared-kernel/ids.js";
@@ -9,6 +23,7 @@ import type { MessageRouteHandler } from "../messaging/ports.js";
 import type { CommandRouteDefinition } from "../messaging/router.js";
 import type { PlayerRegistrationService } from "../player/registration-service.js";
 import type { WorldService } from "../world/service.js";
+import type { WorldLocationView } from "../world/contracts.js";
 import {
   EXPEDITION_DURATION_MINUTES,
   EXPEDITION_WEEKLY_LIMIT,
@@ -16,7 +31,11 @@ import {
 } from "./expedition-clock.js";
 import type { ExpeditionSnapshot } from "./expedition-state.js";
 import { expeditionWeekKey, expeditionWeeklyAdmission } from "./expedition-week.js";
-import { renderExpeditionV4OpeningPanel } from "./expedition-v4-preparation-panel.js";
+import {
+  renderExpeditionV4OpeningPanel,
+  renderExpeditionV4PreparingPanel,
+} from "./expedition-v4-preparation-panel.js";
+import { renderExpeditionV4ActivePanel } from "./expedition-v4-active-panel.js";
 import { renderExpeditionV4SearchResultPanel } from "./expedition-v4-search-result-panel.js";
 
 /**
@@ -49,6 +68,24 @@ export interface ExpeditionV4ReadOnlyDeps {
   readonly preparation?: Pick<PostgresExpeditionRepository, "prepare" | "changePeriod" | "end">;
   /** Third explicit stage-only opt-in. No encounter route exists without it. */
   readonly search?: Pick<PostgresExpeditionV4StagingSearch, "execute">;
+  /** Trusted TRAIL source + canonical Encounter writer; isolated simulated WhatsApp only. */
+  readonly trail?: Pick<PostgresExpeditionV4StagingTrailFollow, "readPending" | "execute">;
+  /** Recover exactly the original committed follow message after Inbox failure. */
+  readonly trailRecovery?: Pick<PostgresExpeditionTrailConfirmationRecovery, "resolve">;
+  /** An explicit, independent 60-minute PUBLISHED resource writer in isolated development. */
+  readonly resources?: Pick<PostgresExpeditionV4StagingResourceSearch, "execute">;
+  /** Recover a previously committed resource without rolling or granting twice. */
+  readonly resourceRecovery?: Pick<PostgresExpeditionResourceConfirmationRecovery, "resolve">;
+  /** Test-only recovery of a committed END when Inbox completion was interrupted. */
+  readonly endRecovery?: Pick<PostgresExpeditionEndConfirmationRecovery, "resolve">;
+  /** Isolated read-only summary; never fabricates capture, XP or item grants. */
+  readonly summary?: Pick<PostgresExpeditionV4StatusReader, "readLatestCompleted">;
+  /** Read-only, player-scoped complete source-event timeline on isolated PG18. */
+  readonly history?: Pick<PostgresExpeditionV4EventHistoryReader, "readLatestCompleted">;
+  /** Complete atomic World+expedition travel, staging/test only. */
+  readonly travel?: Pick<PostgresExpeditionV4StagingTravel, "execute">;
+  /** Only exact, original claimed Inbox may recover a previously committed travel. */
+  readonly travelRecovery?: Pick<PostgresExpeditionTravelConfirmationRecovery, "resolve">;
 }
 
 function privateText(context: MessageHandlerContext, text: string): Result<MessageHandlerResult> {
@@ -102,6 +139,52 @@ function privateSearchResult(
   });
 }
 
+function privateEndConfirmation(
+  context: MessageHandlerContext,
+  elapsedMinutes: number,
+): Result<MessageHandlerResult> {
+  return privateText(
+    context,
+    [
+      "✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗘𝗫𝗣𝗘𝗗𝗜ÇÃ𝗢*",
+      "> _Expedição encerrada voluntariamente._",
+      "",
+      "⌛ *Tempo utilizado:* `" + String(elapsedMinutes) + " min`",
+      "🎟️ *Cota semanal já consumida*",
+      "",
+      "› _Nenhuma recompensa adicional foi concedida pelo encerramento._",
+      "› _Relatório externo (mínimo 100 palavras) e premiação dependem de aprovação da equipe._",
+    ].join("\n"),
+  );
+}
+
+function privateTravelConfirmation(
+  context: MessageHandlerContext,
+  info: {
+    readonly destinationDisplayName: string;
+    readonly travelMinutes: number;
+    readonly elapsedMinutes: number;
+    readonly phase: "ACTIVE" | "ENDED";
+  },
+): Result<MessageHandlerResult> {
+  const destination = safeLabel(info.destinationDisplayName);
+  if (destination === null) {
+    return err(appError("FLOW_BLOCKED", "Travel destination label is unsafe"));
+  }
+  return privateText(
+    context,
+    [
+      "✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗩𝗜𝗔𝗚𝗘𝗠*",
+      "⌖ *Destino:* " + destination,
+      "⌛ *Tempo da viagem:* `" + String(info.travelMinutes) + " min`",
+      "⌛ *Tempo acumulado:* `" + String(info.elapsedMinutes) + " min`",
+      info.phase === "ENDED"
+        ? "> _Expedição concluída pelo limite de tempo._"
+        : "› _Consulte /explorar status para continuar na nova área._",
+    ].join("\n"),
+  );
+}
+
 function safeLabel(value: string): string | null {
   const text = value
     .replace(/[\r\n*_~`<>/]/gu, " ")
@@ -110,6 +193,77 @@ function safeLabel(value: string): string | null {
     .replace(/\s+/gu, " ")
     .trim();
   return text.length > 0 && text.length <= 70 && !text.includes("[Ler mais]") ? text : null;
+}
+
+/**
+ * World PUBLISHED is authoritative. A read-only destination consultation must
+ * never create an action option, invent costs, reveal locked locations or
+ * silently change the player's area.
+ */
+function privateExpeditionDestinations(
+  context: MessageHandlerContext,
+  location: WorldLocationView,
+  canTravel: boolean,
+): Result<MessageHandlerResult> {
+  const launch = new Set(["campos-de-yun", "vila-dos-arrozais"]);
+  if (
+    location.regionSlug !== "zhoulia" ||
+    !launch.has(location.areaSlug) ||
+    !/^[a-f0-9-]{36}$/iu.test(location.contentReleaseId)
+  ) {
+    return err(appError("FLOW_BLOCKED", "Current published area cannot offer destinations"));
+  }
+  const seen = new Set<string>();
+  const destinations: string[] = [];
+  for (const road of location.connections) {
+    if (
+      road.available !== true ||
+      road.missingUnlockKeys.length !== 0 ||
+      !launch.has(road.destinationSlug) ||
+      road.destinationSlug === location.areaSlug
+    ) {
+      continue;
+    }
+    const label = safeLabel(road.destinationDisplayName);
+    if (label === null || !/^[a-f0-9-]{36}$/iu.test(road.destinationAreaId)) {
+      return err(appError("FLOW_BLOCKED", "Published World destination is unsafe"));
+    }
+    if (seen.has(road.destinationAreaId)) continue;
+    seen.add(road.destinationAreaId);
+    const approvedMinutes = road.explorationMinutes;
+    if (
+      canTravel &&
+      Number.isSafeInteger(approvedMinutes) &&
+      approvedMinutes !== undefined &&
+      approvedMinutes > 0 &&
+      approvedMinutes <= EXPEDITION_DURATION_MINUTES
+    ) {
+      destinations.push(
+        "• " + label + " ● `" + String(approvedMinutes) + " min`",
+        "› _/explorar viajar " + road.destinationSlug + "_",
+      );
+    } else {
+      destinations.push("• " + label + " ● _tempo de viagem ainda não publicado_");
+    }
+  }
+  const origin = safeLabel(location.areaDisplayName);
+  if (origin === null) return err(appError("FLOW_BLOCKED", "World origin is unsafe"));
+  return privateText(
+    context,
+    [
+      "✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗗𝗘𝗦𝗧𝗜𝗡𝗢𝗦*",
+      "⌖ *Local atual:* " + origin,
+      "",
+      "◇ *𝗖𝗢𝗡𝗘𝗫Õ𝗘𝗦 𝗗𝗜𝗦𝗣𝗢𝗡Í𝗩𝗘𝗜𝗦*",
+      "",
+      ...(destinations.length > 0
+        ? destinations
+        : ["> _Nenhum destino acessível confirmado nesta área._"]),
+      "",
+      "> _Consulta gratuita: não consome tempo nem cota._",
+      "› _Só conexões com minutos internos publicados podem ser percorridas._",
+    ].join("\n"),
+  );
 }
 
 function validExpedition(
@@ -146,6 +300,31 @@ function validExpedition(
   );
 }
 
+function privateResourceConfirmation(
+  context: MessageHandlerContext,
+  receipt: RecoveredResourceConfirmation,
+): Result<MessageHandlerResult> {
+  const displayName = receipt.displayName === null ? null : safeLabel(receipt.displayName);
+  if (receipt.kind === "ITEM" && (displayName === null || receipt.quantity <= 0n)) {
+    return err(appError("FLOW_BLOCKED", "Recurso publicado sem identificação válida."));
+  }
+  return privateText(
+    context,
+    [
+      "✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗥𝗘𝗖𝗨𝗥𝗦𝗢𝗦*",
+      receipt.kind === "ITEM"
+        ? "🎒 *Encontrado:* " + displayName + " ×" + receipt.quantity.toString()
+        : "> _Nenhum recurso encontrado desta vez._",
+      "",
+      "⌛ *Custo:* `60 min`",
+      "⌛ *Tempo utilizado:* `" + String(receipt.elapsedMinutes) + " min`",
+      "🎟️ *Cota da semana:* " +
+        (receipt.consumedWeeklySlot ? "primeira ação contabilizada" : "sem nova cota"),
+      "› _Resultado registrado no inventário canônico, quando houver item._",
+    ].join("\n"),
+  );
+}
+
 class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
   public constructor(private readonly deps: ExpeditionV4ReadOnlyDeps) {
     // The configured calendar must be validated even if no trainer calls the command.
@@ -172,11 +351,30 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
           : "NIGHT";
     const cancel = /^\/explorar\s+cancelar$/iu.test(text);
     const searchFree = /^\/explorar\s+buscar$/iu.test(text);
+    const resourceFree = /^\/explorar\s+recursos$/iu.test(text);
+    const trailRequested = /^\/explorar\s+(?:seguir(?:\s+rastros)?|rastros)$/iu.test(text);
+    const helpRequested = /^\/explorar\s+ajuda$/iu.test(text);
+    const endRequested = /^\/explorar\s+(?:encerrar|4)$/iu.test(text);
+    const destinationsRequested = /^\/explorar\s+(?:destinos|3)$/iu.test(text);
+    const travelRequested = /^\/explorar\s+viajar\s+(vila-dos-arrozais|campos-de-yun)$/iu.exec(
+      text,
+    );
+    const summaryRequested = /^\/explorar\s+resumo$/iu.test(text);
+    const historyRequested = /^\/explorar\s+eventos(?:\s|$)/iu.test(text);
+    const historyMatch = /^\/explorar\s+eventos(?:\s+([1-9][0-9]{0,3}))?$/iu.exec(text);
+    const endConfirmed = /^\/explorar\s+encerrar\s+confirmar$/iu.test(text);
     if (
-      !/^\/explorar(?:\s+(?:status|retomar))?$/iu.test(text) &&
+      !/^\/explorar(?:\s+(?:status|retomar|ajuda))?$/iu.test(text) &&
       (this.deps.preparation === undefined ||
         (period === null && requestedPeriod === null && !cancel)) &&
-      (!searchFree || this.deps.search === undefined)
+      (!searchFree || this.deps.search === undefined) &&
+      (!resourceFree || this.deps.resources === undefined) &&
+      (!trailRequested || this.deps.trail === undefined) &&
+      (!(endRequested || endConfirmed) || this.deps.search === undefined) &&
+      (!destinationsRequested || this.deps.preparation === undefined) &&
+      (!summaryRequested || this.deps.summary === undefined) &&
+      (!historyRequested || this.deps.history === undefined) &&
+      (travelRequested === null || this.deps.travel === undefined)
     ) {
       return privateText(
         context,
@@ -206,10 +404,127 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
         appError("FLOW_BLOCKED", "Exploração disponível somente no grupo GAME autorizado."),
       );
     }
+    if (historyRequested && this.deps.history !== undefined) {
+      if (historyMatch === null) {
+        return err(appError("VALIDATION_FAILED", "Use /explorar eventos ou /explorar eventos 2."));
+      }
+      const requestedPage = Number(historyMatch[1] ?? "1");
+      const found = await this.deps.history.readLatestCompleted(playerId, requestedPage);
+      if (!found.ok) return found;
+      if (found.value === null) {
+        return privateText(
+          context,
+          "✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗛𝗜𝗦𝗧Ó𝗥𝗜𝗖𝗢*\\n\\nNenhuma expedição encerrada possui histórico disponível.",
+        );
+      }
+      const panel = renderExpeditionV4EventHistoryPanel(found.value);
+      if (!panel.ok) return panel;
+      return privateText(context, panel.value);
+    }
+    if (summaryRequested && this.deps.summary !== undefined) {
+      const latest = await this.deps.summary.readLatestCompleted(playerId);
+      if (latest === null) {
+        return privateText(
+          context,
+          "✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗥𝗘𝗦𝗨𝗠𝗢*\n\nNenhuma expedição concluída com resultados registrados.",
+        );
+      }
+      const counts = [
+        latest.searches,
+        latest.noSignal,
+        latest.trail,
+        latest.incidental,
+        latest.direct,
+      ];
+      if (
+        !counts.every((count) => Number.isSafeInteger(count) && count >= 0) ||
+        latest.searches !== latest.noSignal + latest.trail + latest.incidental + latest.direct ||
+        !Number.isSafeInteger(latest.elapsedMinutes) ||
+        latest.elapsedMinutes < 1 ||
+        latest.elapsedMinutes > EXPEDITION_DURATION_MINUTES ||
+        !["DAY", "NIGHT"].includes(latest.period) ||
+        !["VOLUNTARY", "CLOCK", "BLACKOUT"].includes(latest.endReason)
+      ) {
+        return err(appError("FLOW_BLOCKED", "Persisted expedition history is inconsistent"));
+      }
+      const reason =
+        latest.endReason === "VOLUNTARY"
+          ? "Encerramento voluntário"
+          : latest.endReason === "CLOCK"
+            ? "Tempo esgotado"
+            : "Derrota total";
+      return privateText(
+        context,
+        [
+          "✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗥𝗘𝗦𝗨𝗠𝗢*",
+          "> _Última expedição concluída — dados confirmados._",
+          "",
+          "◇ *𝗘𝗫𝗣𝗘𝗗𝗜ÇÃ𝗢*",
+          "☀️🌙 *Período:* " + (latest.period === "DAY" ? "Diurno" : "Noturno"),
+          "⌛ *Tempo utilizado:* `" + String(latest.elapsedMinutes) + " min`",
+          "◇ *Término:* " + reason,
+          "",
+          "◇ *𝗕𝗨𝗦𝗖𝗔𝗦*",
+          "🔎 Total: `" + String(latest.searches) + "`",
+          "• Nenhum sinal: `" + String(latest.noSignal) + "`",
+          "• Rastros: `" + String(latest.trail) + "`",
+          "• Encontros incidentais: `" + String(latest.incidental) + "`",
+          "• Encontros diretos: `" + String(latest.direct) + "`",
+          "",
+          ...(latest.endReason === "BLACKOUT"
+            ? ["> _Derrota total: sem prêmio de conclusão._"]
+            : ["> _Relatório externo (mínimo 100 palavras) e premiação dependem da equipe._"]),
+          "› _Este resumo não confirma capturas, batalhas vencidas, itens ou prêmios._",
+        ].join("\n"),
+      );
+    }
+    if (trailRequested && this.deps.trailRecovery !== undefined) {
+      const recovered = await this.deps.trailRecovery.resolve({ playerId, context });
+      if (!recovered.ok) return recovered;
+      if (recovered.value !== null) {
+        const shown = renderExpeditionV4TrailFollowPanel({
+          encounterPreview: recovered.value.encounterPreview,
+          elapsedMinutes: recovered.value.elapsedMinutes,
+          consumedWeeklySlot: recovered.value.consumedWeeklySlot,
+        });
+        if (!shown.ok) return shown;
+        return privateSearchResult(context, shown.value, playerId, recovered.value.outcome);
+      }
+    }
+    if (travelRequested !== null && this.deps.travelRecovery !== undefined) {
+      const committed = await this.deps.travelRecovery.resolve({ playerId, context });
+      if (!committed.ok) return committed;
+      if (committed.value !== null) return privateTravelConfirmation(context, committed.value);
+    }
+    if (
+      (resourceFree || token === "2") &&
+      this.deps.resources !== undefined &&
+      this.deps.resourceRecovery !== undefined
+    ) {
+      const recovered = await this.deps.resourceRecovery.resolve({ playerId, context });
+      if (!recovered.ok) return recovered;
+      if (recovered.value !== null) {
+        return privateResourceConfirmation(context, recovered.value);
+      }
+    }
+    // A previous END transaction may have committed before Inbox completion.
+    // Recover only the exact original message/receipt, before a now-ended
+    // expedition disappears from the active status reader.
+    if (endConfirmed && this.deps.endRecovery !== undefined) {
+      const previous = await this.deps.endRecovery.resolve({ playerId, context });
+      if (!previous.ok) return previous;
+      if (previous.value !== null) {
+        return privateEndConfirmation(context, previous.value.elapsedMinutes);
+      }
+    }
     const located = await this.deps.world.getLocation(playerId);
     if (!located.ok) return located;
     const location = safeLabel(located.value.areaDisplayName);
-    if (location === null || located.value.requiresRelocation) {
+    if (
+      location === null ||
+      located.value.playerId !== playerId ||
+      located.value.requiresRelocation
+    ) {
       return err(appError("FLOW_BLOCKED", "Localização atual não está pronta para a exploração."));
     }
     // The PREPARING writer currently permits only the two published
@@ -246,7 +561,174 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
           ? "PREPARING"
           : "ACTIVE";
     const quota = expeditionWeeklyAdmission(facts.usedThisWeek, state);
-    if (searchFree && this.deps.search !== undefined) {
+    if (helpRequested) {
+      const choices = [
+        "› _Consulte o estado: /explorar status ou /explorar retomar._",
+        ...(state === "NONE" && this.deps.preparation !== undefined && quota.canPrepare
+          ? [
+              "1. ☀️ Diurno ● /explorar 1",
+              "2. 🌙 Noturno ● /explorar 2",
+              "› _Preparar não consome tempo nem cota semanal._",
+            ]
+          : []),
+        ...(state !== "NONE" && this.deps.search !== undefined
+          ? ["1. 🔎 Buscar Pokémon ● `30 min`", "› _Use /explorar 1 ou /explorar buscar._"]
+          : []),
+        ...(state === "ACTIVE" && this.deps.trail !== undefined
+          ? [
+              "› _Seguir rastros recentes: /explorar seguir ● \`15 min\` (somente se houver rastro)._",
+            ]
+          : []),
+        ...(state !== "NONE" && this.deps.resources !== undefined
+          ? [
+              "2. 🎒 Buscar recursos ● `60 min`",
+              "› _Use /explorar 2 ou /explorar recursos; exige tabela publicada._",
+            ]
+          : []),
+        ...(state !== "NONE" && this.deps.preparation !== undefined
+          ? ["3. 🗺️ Consultar destinos ● /explorar 3"]
+          : []),
+        ...(state === "ACTIVE" && this.deps.search !== undefined
+          ? ["4. 📋 Encerrar ● /explorar 4", "› _A confirmação é obrigatória._"]
+          : []),
+        ...(state === "PREPARING" && this.deps.preparation !== undefined
+          ? [
+              "› _Trocar período: /explorar periodo dia ou /explorar periodo noite._",
+              "› _Cancelar sem custo: /explorar cancelar._",
+            ]
+          : []),
+        ...(this.deps.history !== undefined
+          ? ["› _Histórico de eventos: /explorar eventos (consultas gratuitas)._"]
+          : []),
+        ...(this.deps.summary === undefined
+          ? ["› _Histórico ainda não está disponível nesta prévia._"]
+          : ["› _Resumo da última expedição concluída: /explorar resumo._"]),
+        ...(this.deps.travel === undefined
+          ? ["› _Recursos e viagem ainda não estão habilitados nesta versão isolada._"]
+          : [
+              "› _Viagem somente por conexão com minutos publicados; recursos ainda indisponíveis._",
+            ]),
+      ];
+      return privateText(context, ["✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗔𝗝𝗨𝗗𝗔*", "", ...choices].join("\n"));
+    }
+    if (destinationsRequested && this.deps.preparation !== undefined) {
+      if (state === "NONE") {
+        return err(
+          appError("FLOW_BLOCKED", "Prepare an expedition before consulting destinations"),
+        );
+      }
+      return privateExpeditionDestinations(context, located.value, this.deps.travel !== undefined);
+    }
+    if (travelRequested !== null && this.deps.travel !== undefined) {
+      if (
+        process.env.APP_ENV !== "test" ||
+        process.env.NODE_ENV !== "test" ||
+        process.env.WHATSAPP_ENABLED !== "false" ||
+        facts.expedition === null
+      ) {
+        return err(appError("FLOW_BLOCKED", "Travel requires isolated prepared expedition"));
+      }
+      const slug = travelRequested[1]?.toLowerCase();
+      const road = located.value.connections.find(
+        (connection) =>
+          connection.available &&
+          connection.missingUnlockKeys.length === 0 &&
+          connection.destinationSlug === slug &&
+          Number.isSafeInteger(connection.explorationMinutes) &&
+          connection.explorationMinutes !== undefined &&
+          connection.explorationMinutes > 0 &&
+          connection.explorationMinutes <= EXPEDITION_DURATION_MINUTES,
+      );
+      if (road === undefined || road.destinationAreaId === located.value.areaId) {
+        return err(appError("FLOW_BLOCKED", "No approved expedition travel cost for destination"));
+      }
+      if (safeLabel(road.destinationDisplayName) === null) {
+        return err(appError("FLOW_BLOCKED", "Travel destination name is unsafe"));
+      }
+      const original = facts.expedition;
+      const moved = await this.deps.travel.execute({
+        playerId,
+        expeditionId: original.expeditionId,
+        expectedRevision: original.revision,
+        expectedWorldRevision: located.value.revision,
+        destinationAreaId: road.destinationAreaId,
+        idempotencyKey: context.idempotencyKey,
+      });
+      if (!moved.ok) return moved;
+      const after = moved.value.expedition;
+      if (
+        after.playerId !== playerId ||
+        after.expeditionId !== original.expeditionId ||
+        after.areaId !== road.destinationAreaId ||
+        after.elapsedMinutes !== original.elapsedMinutes + road.explorationMinutes! ||
+        after.revision !== original.revision + 1n ||
+        moved.value.consumedWeeklySlot !== (state === "PREPARING")
+      ) {
+        return err(appError("FLOW_BLOCKED", "Travel receipt was inconsistent with the expedition"));
+      }
+      return privateTravelConfirmation(context, {
+        destinationDisplayName: road.destinationDisplayName,
+        travelMinutes: road.explorationMinutes!,
+        elapsedMinutes: after.elapsedMinutes,
+        phase: after.phase === "ENDED" ? "ENDED" : "ACTIVE",
+      });
+    }
+    if ((endRequested || endConfirmed) && this.deps.search !== undefined) {
+      const current = facts.expedition;
+      if (current === null || state !== "ACTIVE" || this.deps.preparation === undefined) {
+        return err(appError("FLOW_BLOCKED", "No active expedition is available to close"));
+      }
+      if (endRequested) {
+        return privateText(
+          context,
+          [
+            "✦ *𝗥𝗢𝗧𝗢𝗠 · 𝗖𝗢𝗡𝗙𝗜𝗥𝗠𝗔ÇÃ𝗢*",
+            "> _Deseja realmente encerrar a expedição atual?_",
+            "",
+            "⌛ *Tempo utilizado:* `" + String(current.elapsedMinutes) + " min`",
+            "🎟️ *A cota já consumida não será devolvida.*",
+            "",
+            "› _Para confirmar: /explorar encerrar confirmar_",
+            "› _Para continuar explorando, não envie essa confirmação._",
+          ].join("\n"),
+        );
+      }
+      if (
+        process.env.APP_ENV !== "test" ||
+        process.env.NODE_ENV !== "test" ||
+        process.env.WHATSAPP_ENABLED !== "false"
+      ) {
+        return err(appError("FLOW_BLOCKED", "Closure is only enabled in isolated development"));
+      }
+      const ended = await this.deps.preparation.end({
+        playerId,
+        expeditionId: current.expeditionId,
+        expectedRevision: current.revision,
+        reason: "VOLUNTARY",
+        idempotencyKey: context.idempotencyKey,
+      });
+      if (!ended.ok) return ended;
+      if (
+        ended.value.expedition.playerId !== playerId ||
+        ended.value.expedition.expeditionId !== current.expeditionId ||
+        ended.value.expedition.areaId !== located.value.areaId ||
+        ended.value.expedition.phase !== "ENDED" ||
+        ended.value.expedition.endReason !== "VOLUNTARY" ||
+        ended.value.expedition.revision !== current.revision + 1n ||
+        ended.value.expedition.elapsedMinutes !== current.elapsedMinutes ||
+        ended.value.expedition.consumedWeekKey !== current.consumedWeekKey ||
+        ended.value.consumedWeeklySlot
+      ) {
+        return err(appError("FLOW_BLOCKED", "Voluntary closure did not match the expedition"));
+      }
+      return privateEndConfirmation(context, current.elapsedMinutes);
+    }
+    // A numeric option is contextual, not a second day-preparation command:
+    // in NONE, /explorar 1 selects day; in PREPARING/ACTIVE, /explorar 1
+    // is SEARCH_FREE only when the real search writer is configured.
+    const searchRequested =
+      searchFree || (this.deps.search !== undefined && token === "1" && state !== "NONE");
+    if (searchRequested && this.deps.search !== undefined) {
       const current = facts.expedition;
       if (current === null || (current.phase !== "PREPARING" && current.phase !== "ACTIVE")) {
         return err(appError("FLOW_BLOCKED", "Não há expedição para buscar nesta área."));
@@ -277,9 +759,90 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
         encounterPreview: committed.value.encounterPreview,
         elapsedMinutes: transition.expedition.elapsedMinutes,
         consumedWeeklySlot: transition.consumedWeeklySlot,
+        canFollowTrail: this.deps.trail !== undefined,
       });
       if (!panel.ok) return panel;
       return privateSearchResult(context, panel.value, playerId, outcome);
+    }
+    if (trailRequested && this.deps.trail !== undefined) {
+      const current = facts.expedition;
+      if (current === null || current.phase !== "ACTIVE") {
+        return err(appError("FLOW_BLOCKED", "Não há rastros de uma expedição ativa."));
+      }
+      const sourceOutcomeId = await this.deps.trail.readPending(current);
+      if (sourceOutcomeId === null) {
+        return err(appError("FLOW_BLOCKED", "Nenhum rastro recente pode ser seguido agora."));
+      }
+      const followed = await this.deps.trail.execute({
+        playerId,
+        expeditionId: current.expeditionId,
+        expectedRevision: current.revision,
+        idempotencyKey: context.idempotencyKey,
+        sourceOutcomeId,
+      });
+      if (!followed.ok) return followed;
+      const { transition, outcome } = followed.value;
+      if (
+        transition.expedition.playerId !== playerId ||
+        transition.expedition.expeditionId !== current.expeditionId ||
+        transition.expedition.areaId !== located.value.areaId ||
+        transition.expedition.revision !== current.revision + 1n ||
+        transition.expedition.elapsedMinutes !== current.elapsedMinutes + 15 ||
+        transition.consumedWeeklySlot ||
+        followed.value.sourceOutcomeId !== sourceOutcomeId ||
+        outcome.kind !== "DIRECT" ||
+        outcome.encounterId === null ||
+        outcome.playerId !== playerId ||
+        outcome.expeditionId !== current.expeditionId ||
+        outcome.expeditionRevision !== current.revision
+      ) {
+        return err(appError("FLOW_BLOCKED", "O encontro do rastro não corresponde à expedição."));
+      }
+      const panel = renderExpeditionV4TrailFollowPanel({
+        encounterPreview: followed.value.encounterPreview,
+        elapsedMinutes: transition.expedition.elapsedMinutes,
+        consumedWeeklySlot: transition.consumedWeeklySlot,
+      });
+      if (!panel.ok) return panel;
+      return privateSearchResult(context, panel.value, playerId, outcome);
+    }
+    // The contextual 2 is a resource search ONLY in PREPARING/ACTIVE.
+    // In NONE it remains the existing night-preparation choice.
+    const resourcesRequested =
+      resourceFree || (this.deps.resources !== undefined && token === "2" && state !== "NONE");
+    if (resourcesRequested && this.deps.resources !== undefined) {
+      const current = facts.expedition;
+      if (current === null || !["PREPARING", "ACTIVE"].includes(current.phase)) {
+        return err(appError("FLOW_BLOCKED", "Prepare uma expedição antes de procurar recursos."));
+      }
+      const committed = await this.deps.resources.execute({
+        playerId,
+        expeditionId: current.expeditionId,
+        expectedRevision: current.revision,
+        idempotencyKey: context.idempotencyKey,
+      });
+      if (!committed.ok) return committed;
+      const { transition, resource } = committed.value;
+      if (
+        transition.expedition.playerId !== playerId ||
+        transition.expedition.expeditionId !== current.expeditionId ||
+        transition.expedition.areaId !== located.value.areaId ||
+        transition.expedition.elapsedMinutes !== current.elapsedMinutes + 60 ||
+        resource.playerId !== playerId ||
+        resource.expeditionId !== current.expeditionId ||
+        resource.expeditionRevision !== current.revision ||
+        (current.phase === "PREPARING" && !transition.consumedWeeklySlot) ||
+        (current.phase === "ACTIVE" && transition.consumedWeeklySlot)
+      ) {
+        return err(appError("FLOW_BLOCKED", "Recibo de recursos não corresponde à expedição."));
+      }
+      return privateResourceConfirmation(context, {
+        kind: resource.kind,
+        displayName: resource.displayName,
+        quantity: resource.quantity,
+        elapsedMinutes: transition.expedition.elapsedMinutes,
+        consumedWeeklySlot: transition.consumedWeeklySlot,
+      });
     }
     if ((requestedPeriod !== null || cancel) && this.deps.preparation !== undefined) {
       // This stage-only command is valid solely against the persisted PREPARING
@@ -334,12 +897,22 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
           "*🎟️ Nenhuma cota consumida*",
           "*⌛ Nenhum minuto consumido*",
           "",
-          "> _As ações de busca e captura continuam desativadas nesta prévia._",
+          ...(requestedPeriod !== null && this.deps.search !== undefined
+            ? [
+                "1. 🔎 Buscar Pokémon ● `30 min`",
+                "› _Para buscar: /explorar 1 ou /explorar buscar._",
+              ]
+            : ["> _As ações de busca e captura continuam desativadas nesta prévia._"]),
           "› _Use /explorar status para consultar a situação._",
         ].join("\n"),
       );
     }
     if (period !== null && this.deps.preparation !== undefined) {
+      if (state !== "NONE") {
+        return err(
+          appError("FLOW_BLOCKED", "This period choice is no longer the current expedition menu"),
+        );
+      }
       // The canonical repo owns locks, World release, weekly quota and
       // idempotency. We never grant resources or advance expedition time here.
       const result = await this.deps.preparation.prepare({
@@ -373,7 +946,21 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
           "*⌛ 12h* disponíveis",
           "*🎟️ Cota ainda não consumida*",
           "",
-          "> _Prévia de preparação: buscas, captura e viagem continuam desativadas._",
+          ...(this.deps.search === undefined
+            ? ["> _Prévia de preparação: buscas, captura e viagem continuam desativadas._"]
+            : [
+                "◇ *𝗔ÇÕ𝗘𝗦*",
+                "1. 🔎 Buscar Pokémon ● `30 min`",
+                "› _Use /explorar 1 ou /explorar buscar para iniciar a busca._",
+                ...(this.deps.resources === undefined
+                  ? ["› _Recursos indisponíveis._"]
+                  : [
+                      "2. 🎒 Buscar recursos ● `60 min`",
+                      "› _/explorar 2 ou /explorar recursos; somente com tabela publicada._",
+                    ]),
+                "› _Viagem exige conexão e duração publicada._",
+              ]),
+          "3. 🗺️ Consultar destinos ● /explorar 3",
           "› _Use /explorar status para consultar a expedição._",
         ].join("\n"),
       );
@@ -396,7 +983,120 @@ class ExpeditionV4ReadOnlyHandler implements MessageRouteHandler {
           opening.value.text,
           "",
           "› _Prévia de preparação: envie /explorar 1 ou /explorar 2._",
-          "› _Busca, viagem e captura ainda não estão liberadas._",
+          ...(this.deps.search === undefined
+            ? ["› _Busca, viagem e captura ainda não estão liberadas._"]
+            : [
+                "› _Prepare um período para liberar a busca; recursos e viagem seguem indisponíveis._",
+              ]),
+        ].join("\n"),
+      );
+    }
+    // Render the approved V4 state hierarchy only when the canonical search
+    // service is actually wired. Non-existent resource/travel/end actions are
+    // not offered. Until device calibration, display every action accessibly
+    // with combiningCount=0 instead of faking the native WhatsApp fold.
+    if (this.deps.search !== undefined && facts.expedition !== null) {
+      if (state === "PREPARING") {
+        const current = facts.expedition;
+        const shown = renderExpeditionV4PreparingPanel({
+          expedition: current,
+          locationName: location,
+          remainingThisWeek: quota.remaining,
+          choices: [
+            {
+              optionNo: 1,
+              intent: "SEARCH_FREE",
+              label: "🔎 Buscar Pokémon ● 30 min",
+              phrases: [],
+            },
+            ...(this.deps.resources === undefined
+              ? []
+              : [
+                  {
+                    optionNo: 2,
+                    intent: "SEARCH_RESOURCES" as const,
+                    label: "🎒 Buscar recursos ● 60 min",
+                    phrases: [],
+                  },
+                ]),
+            {
+              optionNo: 3,
+              intent: "DESTINATIONS",
+              label: "🗺️ Consultar destinos",
+              phrases: [],
+            },
+          ],
+          combiningCount: 0,
+        });
+        if (!shown.ok) return shown;
+        return privateText(
+          context,
+          [
+            shown.value.text,
+            "› _Busque: /explorar 1 ou /explorar buscar._",
+            "› _Alterar gratuitamente: /explorar periodo dia ou /explorar periodo noite._",
+            "› _Cancelar preparação: /explorar cancelar._",
+            "3. 🗺️ Consultar destinos",
+            "› _Use /explorar 3 ou /explorar destinos, sem gasto._",
+            ...(this.deps.travel === undefined
+              ? ["› _Viagem ainda não está disponível._"]
+              : ["› _Viajar só quando a conexão tiver minutos aprovados._"]),
+          ].join("\n"),
+        );
+      }
+      const clock = expeditionClock(facts.expedition.period, facts.expedition.elapsedMinutes);
+      const shown = renderExpeditionV4ActivePanel({
+        phase: "ACTIVE",
+        period: facts.expedition.period,
+        currentTime: clock.currentTime,
+        elapsedMinutes: facts.expedition.elapsedMinutes,
+        choices: [
+          {
+            optionNo: 1,
+            intent: "SEARCH_FREE",
+            label: "🔎 Buscar Pokémon ● 30 min",
+            phrases: [],
+          },
+          ...(this.deps.resources === undefined
+            ? []
+            : [
+                {
+                  optionNo: 2,
+                  intent: "SEARCH_RESOURCES" as const,
+                  label: "🎒 Buscar recursos ● 60 min",
+                  phrases: [],
+                },
+              ]),
+          {
+            optionNo: 3,
+            intent: "DESTINATIONS",
+            label: "🗺️ Consultar destinos",
+            phrases: [],
+          },
+          {
+            optionNo: 4,
+            intent: "END",
+            label: "📋 Encerrar",
+            phrases: [],
+          },
+        ],
+        combiningCount: 0,
+      });
+      if (!shown.ok) return shown;
+      return privateText(
+        context,
+        [
+          shown.value.text,
+          "› _Busque: /explorar 1 ou /explorar buscar._",
+          "› _Consultar destinos: /explorar 3 (sem gasto)._",
+          "› _Para encerrar: /explorar 4 (exige confirmação)._",
+          ...(this.deps.trail !== undefined &&
+          (await this.deps.trail.readPending(facts.expedition)) !== null
+            ? ["› _Há rastros recentes: /explorar seguir ● \`15 min\`._"]
+            : []),
+          ...(this.deps.travel === undefined
+            ? ["› _Viagem ainda não habilitada._"]
+            : ["› _Viagem somente com duração publicada._"]),
         ].join("\n"),
       );
     }

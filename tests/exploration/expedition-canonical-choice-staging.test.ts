@@ -33,7 +33,7 @@ function context(choice: string, quoted: string | null = quote): MessageHandlerC
   };
 }
 
-function setup() {
+function setup(battleExecute?: ReturnType<typeof vi.fn>) {
   const resolvePlayer = vi.fn(async () =>
     ok({ playerId, state: "COMPLETE" as const, created: false }),
   );
@@ -79,6 +79,10 @@ function setup() {
     { startCanonical } as unknown as ConstructorParameters<
       typeof ExpeditionCanonicalChoiceStagingResolver
     >[5],
+    undefined,
+    undefined,
+    undefined,
+    battleExecute === undefined ? undefined : ({ execute: battleExecute } as never),
   );
   return {
     resolver,
@@ -92,6 +96,156 @@ function setup() {
 }
 
 describe("staging canonical Capture/PvE mechanical command authorization", () => {
+  it("reconstructs committed PvE confirmation without rerunning battle admission", async () => {
+    const fixture = setup();
+    const execute = vi.fn(async () => {
+      throw new Error("No second battle may start during receipt recovery");
+    });
+    const read = vi.fn(async () => ok({ battleId: randomUUID() }));
+    const gateway = new ExpeditionCanonicalChoiceStagingResolver(
+      { resolvePlayer: fixture.resolvePlayer } as never,
+      { resolve: fixture.resolve } as never,
+      { activeForPlayer: fixture.activeForPlayer } as never,
+      { resolve: fixture.issuedResolve } as never,
+      { attempt: fixture.attempt } as never,
+      { startCanonical: fixture.startCanonical } as never,
+      undefined,
+      undefined,
+      undefined,
+      { execute },
+      { resolve: read },
+    );
+    const result = await gateway.resolve(context("1"));
+    expect(result).toMatchObject({ ok: true, value: { resultRefType: "BATTLE" } });
+    expect(read).toHaveBeenCalledOnce();
+    expect(execute).not.toHaveBeenCalled();
+    expect(fixture.issuedResolve).not.toHaveBeenCalled();
+  });
+
+  it("recovers committed ignore confirmation without issuing a second flee", async () => {
+    const fixture = setup();
+    const previous = { encounterId, elapsedMinutes: 40 };
+    const ignoreExecute = vi.fn(async () => {
+      throw new Error("Committed ignore may not be executed twice");
+    });
+    const ignoreRecovery = vi.fn(async () => ok(previous));
+    const resolver = new ExpeditionCanonicalChoiceStagingResolver(
+      { resolvePlayer: fixture.resolvePlayer } as unknown as ConstructorParameters<
+        typeof ExpeditionCanonicalChoiceStagingResolver
+      >[0],
+      { resolve: fixture.resolve } as unknown as ConstructorParameters<
+        typeof ExpeditionCanonicalChoiceStagingResolver
+      >[1],
+      { activeForPlayer: fixture.activeForPlayer } as unknown as ConstructorParameters<
+        typeof ExpeditionCanonicalChoiceStagingResolver
+      >[2],
+      { resolve: fixture.issuedResolve } as unknown as ConstructorParameters<
+        typeof ExpeditionCanonicalChoiceStagingResolver
+      >[3],
+      { attempt: fixture.attempt } as unknown as ConstructorParameters<
+        typeof ExpeditionCanonicalChoiceStagingResolver
+      >[4],
+      { startCanonical: fixture.startCanonical } as unknown as ConstructorParameters<
+        typeof ExpeditionCanonicalChoiceStagingResolver
+      >[5],
+      undefined,
+      { execute: ignoreExecute } as unknown as ConstructorParameters<
+        typeof ExpeditionCanonicalChoiceStagingResolver
+      >[7],
+      { resolve: ignoreRecovery },
+    );
+    expect(await resolver.resolve(context("0"))).toMatchObject({
+      ok: true,
+      value: {
+        resultRefType: "ENCOUNTER",
+        resultRefId: encounterId,
+        outgoing: [{ payload: { text: expect.stringContaining("Total: 40min") } }],
+      },
+    });
+    expect(ignoreRecovery).toHaveBeenCalledOnce();
+    expect(ignoreExecute).not.toHaveBeenCalled();
+    expect(fixture.issuedResolve).not.toHaveBeenCalled();
+    expect(fixture.activeForPlayer).not.toHaveBeenCalled();
+  });
+
+  it("uses canonical 10-minute ignore only for exact quoted ACTIONABLE permission", async () => {
+    const fixture = setup();
+    const ignoreExecute = vi.fn(async () =>
+      ok({ expedition: { elapsedMinutes: 40, phase: "ACTIVE" }, replayed: false }),
+    );
+    const withIgnore = new ExpeditionCanonicalChoiceStagingResolver(
+      { resolvePlayer: fixture.resolvePlayer } as unknown as ConstructorParameters<
+        typeof ExpeditionCanonicalChoiceStagingResolver
+      >[0],
+      { resolve: fixture.resolve } as unknown as ConstructorParameters<
+        typeof ExpeditionCanonicalChoiceStagingResolver
+      >[1],
+      { activeForPlayer: fixture.activeForPlayer } as unknown as ConstructorParameters<
+        typeof ExpeditionCanonicalChoiceStagingResolver
+      >[2],
+      { resolve: fixture.issuedResolve } as unknown as ConstructorParameters<
+        typeof ExpeditionCanonicalChoiceStagingResolver
+      >[3],
+      { attempt: fixture.attempt } as unknown as ConstructorParameters<
+        typeof ExpeditionCanonicalChoiceStagingResolver
+      >[4],
+      { startCanonical: fixture.startCanonical } as unknown as ConstructorParameters<
+        typeof ExpeditionCanonicalChoiceStagingResolver
+      >[5],
+      undefined,
+      { execute: ignoreExecute } as unknown as ConstructorParameters<
+        typeof ExpeditionCanonicalChoiceStagingResolver
+      >[7],
+    );
+    fixture.issuedResolve.mockResolvedValue(
+      ok({
+        menuId: randomUUID(),
+        playerId,
+        outcomeId,
+        encounterId,
+        encounterRevision: 2n,
+        ballItemIds: {},
+        actionable: true,
+        captureEnabled: false,
+        battleEnabled: false,
+        ignoreEnabled: true,
+      }),
+    );
+    expect(await withIgnore.resolve(context("0"))).toMatchObject({
+      ok: true,
+      value: {
+        resultRefType: "ENCOUNTER",
+        outgoing: [{ payload: { text: expect.stringContaining("10 minutos") } }],
+      },
+    });
+    expect(ignoreExecute).toHaveBeenCalledExactlyOnceWith({
+      playerId,
+      outcomeId,
+      encounterId,
+      expectedEncounterRevision: 2n,
+      idempotencyKey: "inbox:baileys:staging-immutable-choice",
+    });
+    fixture.issuedResolve.mockResolvedValue(
+      ok({
+        menuId: randomUUID(),
+        playerId,
+        outcomeId,
+        encounterId,
+        encounterRevision: 2n,
+        ballItemIds: {},
+        actionable: true,
+        captureEnabled: false,
+        battleEnabled: false,
+        ignoreEnabled: false,
+      }),
+    );
+    expect(await withIgnore.resolve(context("0"))).toMatchObject({
+      ok: false,
+      error: { code: "FLOW_BLOCKED" },
+    });
+    expect(ignoreExecute).toHaveBeenCalledTimes(1);
+  });
+
   it("does not interpret unquoted or unrelated numbers as commands", async () => {
     const fixture = setup();
     const router = new MessageRouter([], undefined, fixture.resolver);
@@ -140,8 +294,9 @@ describe("staging canonical Capture/PvE mechanical command authorization", () =>
     expect(fixture.startCanonical).not.toHaveBeenCalled();
   });
 
-  it("starts existing canonical PvE only if the issued panel explicitly permits BATTLE", async () => {
-    const fixture = setup();
+  it("starts canonical PvE only through an atomic Inbox and battle receipt", async () => {
+    const execute = vi.fn(async () => ok({ battleId: randomUUID(), replayed: false }));
+    const fixture = setup(execute);
     fixture.issuedResolve.mockResolvedValueOnce(
       ok({
         menuId: randomUUID(),
@@ -157,12 +312,20 @@ describe("staging canonical Capture/PvE mechanical command authorization", () =>
     );
     const result = await fixture.resolver.resolve(context("1"));
     expect(result).toMatchObject({ ok: true, value: { resultRefType: "BATTLE" } });
-    expect(fixture.startCanonical).toHaveBeenCalledExactlyOnceWith({
-      playerId,
-      encounterId,
-      expectedRevision: 2n,
-      status: "ENGAGED",
-    });
+    expect(execute).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        playerId,
+        outcomeId,
+        encounterId,
+        expectedEncounterRevision: 2n,
+        idempotencyKey: "inbox:baileys:staging-immutable-choice",
+        menuId: expect.any(String),
+        inboxMessageId: expect.any(String),
+        messageFingerprint: expect.any(String),
+        senderRef,
+      }),
+    );
+    expect(fixture.startCanonical).not.toHaveBeenCalled();
     expect(fixture.attempt).not.toHaveBeenCalled();
   });
 

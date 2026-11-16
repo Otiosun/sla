@@ -55,6 +55,8 @@ export interface WorldConnectionView {
   readonly destinationDisplayName: string;
   readonly available: boolean;
   readonly missingUnlockKeys: readonly string[];
+  /** Published internal expedition cost; never a real-time travel cooldown. */
+  readonly explorationMinutes?: number;
 }
 
 export interface WorldLocationView {

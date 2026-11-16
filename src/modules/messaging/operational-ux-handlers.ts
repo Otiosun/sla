@@ -24,6 +24,7 @@ import type { MessageRouteHandler } from "./ports.js";
 import type { CommandRouteDefinition } from "./router.js";
 
 const PAGE_SIZE = 15;
+const ONBOARDING_ACCESS = ["PENDING", "PROVISIONING", "ACTIVE"] as const;
 
 export interface OperationalUxDependencies {
   readonly registration: Pick<
@@ -1071,6 +1072,17 @@ export function createOperationalUxRoutes(
       }
     }
 
+    const routeArgs = commandArgs(context);
+    const routeNumber = routeArgs.length === 1 ? parseMenuNumber(routeArgs[0] ?? "") : null;
+    if (routeNumber === null) {
+      return err(
+        appError(
+          "VALIDATION_FAILED",
+          "Rota inválida. Use apenas o número mostrado em `/onde`. Ex.: `/ir 1`.",
+        ),
+      );
+    }
+
     if (dependencies.sessions !== undefined) {
       const activeSession = await dependencies.sessions.loadActiveSession(player.value);
       if (!activeSession.ok) return activeSession;
@@ -1078,6 +1090,7 @@ export function createOperationalUxRoutes(
         return err(
           appError("FLOW_BLOCKED", "Saia da instalação com `/sair` antes de viajar.", {
             activeServiceKind: activeSession.value.serviceKind,
+            userMessage: "Saia da instalação com `/sair` antes de viajar.",
           }),
         );
       }
@@ -1092,15 +1105,10 @@ export function createOperationalUxRoutes(
       return textResult(context, travelInProgressText());
     }
 
-    const routeNumber = Number(commandArgs(context)[0]);
     const current = await dependencies.world.getLocation(player.value);
     if (!current.ok) return current;
 
-    if (
-      !Number.isSafeInteger(routeNumber) ||
-      routeNumber < 1 ||
-      routeNumber > current.value.connections.length
-    ) {
+    if (routeNumber > current.value.connections.length) {
       return err(
         appError("VALIDATION_FAILED", "Rota inválida. Use `/onde` e escolha pelo número mostrado."),
       );
@@ -1144,6 +1152,7 @@ export function createOperationalUxRoutes(
             appError(
               "REVISION_CONFLICT",
               "O caminho mudou antes da viagem. Use `/onde` novamente.",
+              { userMessage: "O caminho mudou antes da viagem. Use `/onde` novamente." },
             ),
           )
         : moved;
@@ -1299,22 +1308,42 @@ export function createOperationalUxRoutes(
 
   return [
     { command: "menu", handler: new FunctionalHandler(menu) },
-    { command: "registrar", handler: new FunctionalHandler(register), rateLimitClass: "SENSITIVE" },
+    {
+      command: "registrar",
+      handler: new FunctionalHandler(register),
+      rateLimitClass: "SENSITIVE",
+      policy: { allowedPlayerAccess: ONBOARDING_ACCESS },
+    },
     { command: "regioes", handler: new FunctionalHandler(regions) },
     {
       command: "regiao",
       handler: new FunctionalHandler(selectRegion),
       rateLimitClass: "SENSITIVE",
+      policy: { allowedPlayerAccess: ONBOARDING_ACCESS },
     },
     { command: "starters", handler: new FunctionalHandler(starters) },
     {
       command: "starter",
       handler: new FunctionalHandler(chooseStarter),
       rateLimitClass: "SENSITIVE",
+      policy: { allowedPlayerAccess: ONBOARDING_ACCESS },
     },
-    { command: "concluir", handler: new FunctionalHandler(conclude), rateLimitClass: "SENSITIVE" },
+    {
+      command: "concluir",
+      handler: new FunctionalHandler(conclude),
+      rateLimitClass: "SENSITIVE",
+      policy: { allowedPlayerAccess: ONBOARDING_ACCESS },
+    },
     { command: "perfil", allowEmbedded: true, handler: new FunctionalHandler(profile) },
-    { command: "equipe", allowEmbedded: true, handler: new FunctionalHandler(team) },
+    {
+      command: "equipe",
+      allowEmbedded: true,
+      policyForContext: (context) =>
+        commandArgs(context).length === 0
+          ? undefined
+          : { allowedPlayerAccess: ["ACTIVE"], requiresMechanicalReady: true },
+      handler: new FunctionalHandler(team),
+    },
     { command: "colecao", aliases: ["pokemonbox"], handler: new FunctionalHandler(collection) },
     { command: "box", aliases: ["boxes"], handler: new FunctionalHandler(box) },
     {
@@ -1329,6 +1358,7 @@ export function createOperationalUxRoutes(
     {
       command: "ir",
       allowEmbedded: true,
+      policy: { allowedPlayerAccess: ["ACTIVE"], requiresMechanicalReady: true },
       handler: new FunctionalHandler(travel),
       rateLimitClass: "SENSITIVE",
     },

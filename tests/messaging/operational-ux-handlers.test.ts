@@ -256,7 +256,9 @@ function dependencies(overrides: Record<string, unknown> = {}): OperationalUxDep
 }
 
 function router(deps: OperationalUxDependencies): MessageRouter {
-  return new MessageRouter(createOperationalUxRoutes(deps));
+  return new MessageRouter(createOperationalUxRoutes(deps), {
+    authorize: async () => ok(undefined),
+  });
 }
 
 describe("Phase 13 operational WhatsApp UX", () => {
@@ -772,6 +774,47 @@ describe("Phase 13 operational WhatsApp UX", () => {
     });
     expect(textOf(result)).not.toContain(POKEMON_ID);
   });
+
+  it("protects /ir and mutable /equipe while leaving read-only commands without a policy gate", async () => {
+    const deps = dependencies();
+    const routes = createOperationalUxRoutes(deps);
+    const travel = routes.find((route) => route.command === "ir");
+    const team = routes.find((route) => route.command === "equipe");
+    const where = routes.find((route) => route.command === "onde");
+
+    expect(travel?.policy).toEqual({
+      allowedPlayerAccess: ["ACTIVE"],
+      requiresMechanicalReady: true,
+    });
+    expect(team?.policyForContext?.(context("/equipe"))).toBeUndefined();
+    expect(team?.policyForContext?.(context("/equipe colocar #13 2"))).toEqual({
+      allowedPlayerAccess: ["ACTIVE"],
+      requiresMechanicalReady: true,
+    });
+    expect(where?.policy).toBeUndefined();
+    expect(where?.policyForContext).toBeUndefined();
+
+    const withoutGate = new MessageRouter(routes);
+    expect(await withoutGate.dispatch(context("/ir 1", "ungated-travel"))).toMatchObject({
+      ok: false,
+      error: { code: "ACTION_INVALID" },
+    });
+    expect(
+      await withoutGate.dispatch(context("/equipe colocar #13 2", "ungated-team")),
+    ).toMatchObject({ ok: false, error: { code: "ACTION_INVALID" } });
+    expect(deps.world.travel).not.toHaveBeenCalled();
+  });
+
+  it.each(["/ir", "/ir 1 extra", "/ir 1e0", "/ir 0x1", "/ir 1.0", "/ir -1", "/ir 0", "/ir abc"])(
+    "rejects invalid route selection %s without reading world location",
+    async (command) => {
+      const deps = dependencies();
+      const result = await router(deps).dispatch(context(command, `invalid-route-${command}`));
+      expect(result).toMatchObject({ ok: false, error: { code: "VALIDATION_FAILED" } });
+      expect(deps.world.getLocation).not.toHaveBeenCalled();
+      expect(deps.world.travel).not.toHaveBeenCalled();
+    },
+  );
 
   it("keeps route slugs and revisions internal while /ir uses the visible route number", async () => {
     const deps = dependencies();

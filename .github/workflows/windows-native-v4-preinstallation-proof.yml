@@ -1,0 +1,99 @@
+name: Windows Native V4 Preinstallation Candidate Proof (NO-GO)
+
+on:
+  push:
+    branches:
+      - fix/ux-world-route-access-policy-20261102
+    paths:
+      - ".github/workflows/windows-native-v4-preinstallation-proof.yml"
+      - "scripts/operations/prepare-windows-candidate.mjs"
+      - "scripts/operations/verify-windows-candidate.mjs"
+      - "scripts/operations/release-local-readonly-preflight.ps1"
+      - "scripts/build-runtime.mjs"
+      - "package.json"
+      - "pnpm-lock.yaml"
+  pull_request:
+    paths:
+      - ".github/workflows/windows-native-v4-preinstallation-proof.yml"
+      - "scripts/operations/prepare-windows-candidate.mjs"
+      - "scripts/operations/verify-windows-candidate.mjs"
+      - "scripts/operations/release-local-readonly-preflight.ps1"
+      - "scripts/build-runtime.mjs"
+      - "package.json"
+      - "pnpm-lock.yaml"
+
+permissions:
+  contents: read
+
+jobs:
+  windows-synthetic-candidate:
+    name: Native Windows install/build/archive only; no PM2, DB or WhatsApp
+    runs-on: windows-2025
+    timeout-minutes: 25
+    env:
+      CI: "true"
+      APP_ENV: test
+      NODE_ENV: test
+      WHATSAPP_ENABLED: "false"
+    steps:
+      - name: Checkout exact candidate without persisting credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Use exact supported Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24.19.0
+          package-manager-cache: false
+      - name: Check isolation and forbidden production configuration
+        shell: pwsh
+        run: |
+          if ($env:CI -ne "true" -or $env:APP_ENV -ne "test" -or
+              $env:NODE_ENV -ne "test" -or $env:WHATSAPP_ENABLED -ne "false") {
+            throw "Refusing Windows proof outside isolated CI"
+          }
+          foreach ($private in @(".env", ".env.local", "auth_info_baileys")) {
+            if (Test-Path -LiteralPath $private) { throw "Private path present in Windows proof" }
+          }
+          if ($env:DATABASE_URL -or $env:MIGRATOR_DATABASE_URL) {
+            throw "Windows proof does not accept database connections"
+          }
+      - name: Install pinned pnpm and immutable modules without scripts
+        shell: pwsh
+        run: |
+          npm install --global pnpm@11.23.0
+          if ($LASTEXITCODE -ne 0) { throw "pnpm bootstrap failed" }
+          pnpm install --frozen-lockfile --ignore-scripts
+          if ($LASTEXITCODE -ne 0) { throw "dependency install failed" }
+      - name: Compile and test Windows-only module loading
+        shell: pwsh
+        run: |
+          pnpm typecheck
+          if ($LASTEXITCODE -ne 0) { throw "typecheck failed" }
+          pnpm build
+          if ($LASTEXITCODE -ne 0) { throw "build failed" }
+          node --input-type=module -e "import('sharp').then(m => m.default({create:{width:1,height:1,channels:4,background:'#ffffff'}}).png().toBuffer()).then(b => { if (!b.length) process.exit(1) }).catch(() => process.exit(1))"
+          if ($LASTEXITCODE -ne 0) { throw "Windows image dependency unavailable" }
+      - name: Prove bot HTTP handlers without transport or database
+        shell: pwsh
+        run: |
+          pnpm exec vitest run tests/player/player-portal-http-handler.test.ts tests/runtime/player-portal-runtime-config.test.ts
+          if ($LASTEXITCODE -ne 0) { throw "Windows no-transport tests failed" }
+      - name: Build NO-GO Windows archive and independently verify exact SHA
+        shell: pwsh
+        run: |
+          node scripts/operations/prepare-windows-candidate.mjs . windows-v4-inspection-only
+          if ($LASTEXITCODE -ne 0) { throw "preinstallation inspection bundle failed" }
+          node scripts/operations/verify-windows-candidate.mjs windows-v4-inspection-only $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw "manifest integrity failed" }
+          Compress-Archive -LiteralPath windows-v4-inspection-only -DestinationPath windows-v4-inspection-only.zip
+          if (!(Test-Path -LiteralPath windows-v4-inspection-only.zip)) {
+            throw "Windows zip not produced"
+          }
+      - name: Upload Windows-native build proof, not installer
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pokemon-beyond-windows-native-inspection-only
+          path: windows-v4-inspection-only.zip
+          retention-days: 7
+          if-no-files-found: error

@@ -3,7 +3,7 @@ name: Pokemon Beyond Cross-Module Staging Regression
 on:
   pull_request:
     branches:
-      - fix/ux-pokemon-detail-identity-proof-20261102
+      - fix/ux-team-slot-ambiguity-20261102
     paths:
       - ".github/workflows/release-candidate-crossmodule-regression.yml"
       - "src/modules/exploration/**"
