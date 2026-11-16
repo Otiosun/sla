@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { BattleAdminOwnerService } from "../../src/modules/battle/admin-service.js";
 import { AutoTurnDispatcher } from "../../src/modules/battle/auto-turn-dispatcher.js";
 import type {
   BattleAction,
@@ -10,11 +11,13 @@ import type {
 import { PvpTurnResolutionService } from "../../src/modules/battle/pvp-turn-resolution.js";
 import { BattleService } from "../../src/modules/battle/service.js";
 import { PostgresAutoTurnWindowReader } from "../../src/platform/battle/postgres-auto-turn-window-reader.js";
+import { PostgresBattleAdminRepository } from "../../src/platform/battle/postgres-battle-admin-repository.js";
 import { PostgresBattleAftermath } from "../../src/platform/battle/postgres-battle-aftermath.js";
 import { PostgresBattleCancellation } from "../../src/platform/battle/postgres-battle-cancellation.js";
 import { PostgresBattleParticipantControllerRepository } from "../../src/platform/battle/postgres-battle-participant-controller-repository.js";
 import { PostgresBattleRepository } from "../../src/platform/battle/postgres-battle-repository.js";
 import { PostgresBattleTurnWindowRepository } from "../../src/platform/battle/postgres-battle-turn-window-repository.js";
+import { PostgresNarratorBattleCleanup } from "../../src/platform/battle/postgres-narrator-battle-cleanup.js";
 import { PostgresPvpTurnResolutionRepository } from "../../src/platform/battle/postgres-pvp-turn-resolution-repository.js";
 import { encryptRngSeed } from "../../src/platform/db/encrypted-seed.js";
 import { runMigrations } from "../../src/platform/db/migrations.js";
@@ -490,6 +493,51 @@ async function seedLockedFixture(
   return { battleId, rulesetId, releaseId, playerA, playerB, actorA, actorB, state, windowId };
 }
 
+async function attachScenario29WildEncounter(
+  pool: Pool,
+  fixture: Fixture,
+  playerId: string,
+  linkBattle: boolean,
+): Promise<string> {
+  const regionId = randomUUID();
+  const areaId = randomUUID();
+  const encounterId = randomUUID();
+
+  await pool.query("INSERT INTO regions(id,slug) VALUES ($1,$2)", [
+    regionId,
+    `scenario29-region-${regionId}`,
+  ]);
+  await pool.query("INSERT INTO areas(id,region_id,slug) VALUES ($1,$2,$3)", [
+    areaId,
+    regionId,
+    `scenario29-area-${areaId}`,
+  ]);
+
+  await pool.query(
+    `INSERT INTO encounters(
+      id, player_id, area_id, status, content_release_id, ruleset_id,
+      rng_seed_ciphertext, rng_seed_iv, rng_seed_auth_tag, rng_seed_key_version
+    )
+    SELECT $1,$2,$3,'IN_BATTLE',content_release_id,ruleset_id,
+           rng_seed_ciphertext,rng_seed_iv,rng_seed_auth_tag,rng_seed_key_version
+    FROM battles WHERE id=$4`,
+    [encounterId, playerId, areaId, fixture.battleId],
+  );
+
+  if (linkBattle) {
+    await pool.query("UPDATE battles SET encounter_id=$2 WHERE id=$1", [
+      fixture.battleId,
+      encounterId,
+    ]);
+    await pool.query(
+      `UPDATE battle_state_snapshots SET state=$2::jsonb
+       WHERE battle_id=$1 AND version=0`,
+      [fixture.battleId, JSON.stringify({ ...fixture.state, encounterId })],
+    );
+  }
+
+  return encounterId;
+}
 function service(pool: Pool): PvpTurnResolutionService {
   return new PvpTurnResolutionService(
     new PostgresPvpTurnResolutionRepository(pool),
@@ -1603,6 +1651,350 @@ describe("PVP turn resolution PostgreSQL integration", () => {
     expect(await resolutionCounts(pool, fixture)).toEqual(persisted);
   });
 
+  it("scenario 29: atomically cancels an expired battle window with durable replay", async () => {
+    const fixture = await seedLockedFixture(pool);
+    await pool.query(
+      `UPDATE battle_turn_windows
+       SET opened_at = now() - interval '2 minutes',
+           deadline_at = now() - interval '1 minute'
+       WHERE id = $1`,
+      [fixture.windowId],
+    );
+
+    const request = {
+      battleId: fixture.battleId,
+      expectedVersion: 0,
+      reason: "NARRATOR_FINISH",
+      causationId: fixture.battleId,
+      correlationId: fixture.windowId,
+      requestFingerprint: "a".repeat(64),
+    };
+
+    const first = await new PostgresBattleCancellation(pool).cancel(request);
+    expect(first).toMatchObject({
+      kind: "PERSISTED",
+      state: { status: "CANCELLED", version: 1 },
+    });
+
+    const battle = await pool.query(
+      "SELECT status, version::text, ended_at FROM battles WHERE id=$1",
+      [fixture.battleId],
+    );
+    expect(battle.rows[0]).toMatchObject({
+      status: "CANCELLED",
+      version: "1",
+    });
+    expect(battle.rows[0]?.ended_at).not.toBeNull();
+
+    const window = await pool.query("SELECT status FROM battle_turn_windows WHERE id=$1", [
+      fixture.windowId,
+    ]);
+    expect(window.rows[0]).toEqual({ status: "CANCELLED" });
+
+    const replay = await new PostgresBattleCancellation(pool).cancel(request);
+    expect(replay).toMatchObject({
+      kind: "REPLAYED",
+      state: { status: "CANCELLED", version: 1 },
+    });
+
+    const evidence = await pool.query<{ count: string }>(
+      `SELECT count(*)::text AS count
+       FROM battle_events
+       WHERE battle_id=$1 AND event_type='BattleEnded'`,
+      [fixture.battleId],
+    );
+    expect(evidence.rows[0]?.count).toBe("1");
+
+    const snapshots = await pool.query<{ count: string }>(
+      `SELECT count(*)::text AS count
+       FROM battle_state_snapshots
+       WHERE battle_id=$1 AND version=1`,
+      [fixture.battleId],
+    );
+    expect(snapshots.rows[0]?.count).toBe("1");
+  }, 20000);
+
+  it("scenario 29: rolls back cancellation when the turn-window update fails", async () => {
+    const fixture = await seedLockedFixture(pool);
+
+    await pool.query(
+      `CREATE OR REPLACE FUNCTION fail_s29_cancel_window()
+       RETURNS trigger AS $$
+       BEGIN
+         IF NEW.id = '${fixture.windowId}'::uuid
+            AND NEW.status = 'CANCELLED' THEN
+           RAISE EXCEPTION 's29 forced window failure';
+         END IF;
+         RETURN NEW;
+       END;
+       $$ LANGUAGE plpgsql`,
+    );
+
+    await pool.query(
+      `CREATE TRIGGER fail_s29_cancel_window_trigger
+       BEFORE UPDATE ON battle_turn_windows
+       FOR EACH ROW EXECUTE FUNCTION fail_s29_cancel_window()`,
+    );
+
+    try {
+      await expect(
+        new PostgresBattleCancellation(pool).cancel({
+          battleId: fixture.battleId,
+          expectedVersion: 0,
+          reason: "NARRATOR_FINISH",
+        }),
+      ).rejects.toThrow("s29 forced window failure");
+
+      const battle = await pool.query("SELECT status, version::text FROM battles WHERE id=$1", [
+        fixture.battleId,
+      ]);
+      expect(battle.rows[0]).toEqual({
+        status: "ACTIVE",
+        version: "0",
+      });
+
+      const window = await pool.query("SELECT status FROM battle_turn_windows WHERE id=$1", [
+        fixture.windowId,
+      ]);
+      expect(window.rows[0]).toEqual({ status: "LOCKED" });
+
+      const events = await pool.query<{ count: string }>(
+        `SELECT count(*)::text AS count FROM battle_events
+         WHERE battle_id=$1 AND event_type='BattleEnded'`,
+        [fixture.battleId],
+      );
+      expect(events.rows[0]?.count).toBe("0");
+    } finally {
+      await pool.query(
+        "DROP TRIGGER IF EXISTS fail_s29_cancel_window_trigger ON battle_turn_windows",
+      );
+      await pool.query("DROP FUNCTION IF EXISTS fail_s29_cancel_window()");
+    }
+  }, 20000);
+  it("scenario 29: closes a linked WILD encounter and preserves unrelated encounters", async () => {
+    const fixture = await seedLockedFixture(pool, "NARRATOR");
+    const encounterId = await attachScenario29WildEncounter(pool, fixture, fixture.playerA, true);
+    const unrelatedId = await attachScenario29WildEncounter(pool, fixture, fixture.playerB, false);
+
+    const request = {
+      battleId: fixture.battleId,
+      expectedVersion: 0,
+      reason: "NARRATOR_FINISH",
+      causationId: randomUUID(),
+      requestFingerprint: "b".repeat(64),
+    };
+
+    const first = await new PostgresBattleCancellation(pool).cancel(request);
+    expect(first).toMatchObject({
+      kind: "PERSISTED",
+      state: { status: "CANCELLED", version: 1, encounterId },
+    });
+
+    const battle = await pool.query("SELECT status FROM battles WHERE id=$1", [fixture.battleId]);
+    expect(battle.rows[0]).toEqual({ status: "CANCELLED" });
+
+    const window = await pool.query("SELECT status FROM battle_turn_windows WHERE id=$1", [
+      fixture.windowId,
+    ]);
+    expect(window.rows[0]).toEqual({ status: "CANCELLED" });
+
+    const encounter = await pool.query(
+      "SELECT status,revision::text,closed_at FROM encounters WHERE id=$1",
+      [encounterId],
+    );
+    expect(encounter.rows[0]).toMatchObject({
+      status: "CLOSED",
+      revision: "1",
+    });
+    expect(encounter.rows[0]?.closed_at).not.toBeNull();
+
+    const unrelated = await pool.query(
+      "SELECT status,revision::text,closed_at FROM encounters WHERE id=$1",
+      [unrelatedId],
+    );
+    expect(unrelated.rows[0]).toEqual({
+      status: "IN_BATTLE",
+      revision: "0",
+      closed_at: null,
+    });
+
+    const replay = await new PostgresBattleCancellation(pool).cancel(request);
+    expect(replay).toMatchObject({
+      kind: "REPLAYED",
+      state: { status: "CANCELLED", version: 1 },
+    });
+
+    const conflict = await new PostgresBattleCancellation(pool).cancel({
+      ...request,
+      requestFingerprint: "c".repeat(64),
+    });
+    expect(conflict.kind).toBe("IDEMPOTENCY_CONFLICT");
+
+    const events = await pool.query(
+      `SELECT count(*)::text AS count FROM battle_events
+       WHERE battle_id=$1 AND event_type='BattleEnded'`,
+      [fixture.battleId],
+    );
+    expect(events.rows[0]?.count).toBe("1");
+
+    const afterReplay = await pool.query("SELECT revision::text FROM encounters WHERE id=$1", [
+      encounterId,
+    ]);
+    expect(afterReplay.rows[0]?.revision).toBe("1");
+  }, 20000);
+
+  it("scenario 29: rolls back WILD cancellation when encounter close fails", async () => {
+    const fixture = await seedLockedFixture(pool, "NARRATOR");
+    const encounterId = await attachScenario29WildEncounter(pool, fixture, fixture.playerA, true);
+
+    await pool.query(
+      `CREATE OR REPLACE FUNCTION fail_s29_wild_close()
+       RETURNS trigger AS $$
+       BEGIN
+         IF NEW.id = '${encounterId}'::uuid AND NEW.status='CLOSED' THEN
+           RAISE EXCEPTION 's29 forced wild close failure';
+         END IF;
+         RETURN NEW;
+       END;
+       $$ LANGUAGE plpgsql`,
+    );
+    await pool.query(
+      `CREATE TRIGGER fail_s29_wild_close_trigger
+       BEFORE UPDATE ON encounters
+       FOR EACH ROW EXECUTE FUNCTION fail_s29_wild_close()`,
+    );
+
+    try {
+      await expect(
+        new PostgresBattleCancellation(pool).cancel({
+          battleId: fixture.battleId,
+          expectedVersion: 0,
+          reason: "NARRATOR_FINISH",
+        }),
+      ).rejects.toThrow("s29 forced wild close failure");
+
+      const battle = await pool.query("SELECT status,version::text FROM battles WHERE id=$1", [
+        fixture.battleId,
+      ]);
+      expect(battle.rows[0]).toEqual({ status: "ACTIVE", version: "0" });
+
+      const encounter = await pool.query("SELECT status FROM encounters WHERE id=$1", [
+        encounterId,
+      ]);
+      expect(encounter.rows[0]).toEqual({ status: "IN_BATTLE" });
+
+      const window = await pool.query("SELECT status FROM battle_turn_windows WHERE id=$1", [
+        fixture.windowId,
+      ]);
+      expect(window.rows[0]).toEqual({ status: "LOCKED" });
+
+      const events = await pool.query(
+        `SELECT count(*)::text AS count FROM battle_events
+         WHERE battle_id=$1 AND event_type='BattleEnded'`,
+        [fixture.battleId],
+      );
+      expect(events.rows[0]?.count).toBe("0");
+    } finally {
+      await pool.query("DROP TRIGGER IF EXISTS fail_s29_wild_close_trigger ON encounters");
+      await pool.query("DROP FUNCTION IF EXISTS fail_s29_wild_close()");
+    }
+  }, 20000);
+  it("scenario 29: administrative owner closes WILD encounter and replays safely", async () => {
+    const fixture = await seedLockedFixture(pool, "NARRATOR");
+    const encounterId = await attachScenario29WildEncounter(pool, fixture, fixture.playerA, true);
+
+    const operationId = randomUUID();
+    const request = {
+      playerId: fixture.playerA,
+      battleId: fixture.battleId,
+      expectedVersion: 0,
+      idempotencyKey: operationId,
+      correlationId: randomUUID(),
+      metadata: {
+        sourceType: "ADMIN_OPERATION" as const,
+        sourceId: operationId,
+        reason: "STAFF_TERMINATION",
+        actorType: "ADMIN" as const,
+        actorId: randomUUID(),
+      },
+    };
+
+    const admin = () =>
+      new BattleAdminOwnerService(
+        new PostgresBattleAdminRepository(pool),
+        new PostgresBattleCancellation(pool),
+      );
+
+    const first = await admin().forceCancel(request);
+    expect(first.ok).toBe(true);
+    if (!first.ok) throw new Error(first.error.message);
+
+    expect(first.value).toMatchObject({
+      operationKind: "FORCE_CANCEL",
+      beforeVersion: 0,
+      afterVersion: 1,
+      replayed: false,
+      encounterNeedsClose: false,
+      beforeState: {
+        encounterStatus: "IN_BATTLE",
+        status: "ACTIVE",
+      },
+      afterState: {
+        encounterId,
+        encounterStatus: "CLOSED",
+        status: "CANCELLED",
+      },
+    });
+
+    const replay = await admin().forceCancel(request);
+    expect(replay.ok).toBe(true);
+    if (!replay.ok) throw new Error(replay.error.message);
+
+    expect(replay.value).toMatchObject({
+      operationKind: "FORCE_CANCEL",
+      afterVersion: 1,
+      replayed: true,
+      encounterNeedsClose: false,
+    });
+
+    const conflict = await admin().forceCancel({
+      ...request,
+      metadata: { ...request.metadata, reason: "DIFFERENT_REASON" },
+    });
+    expect(conflict.ok).toBe(false);
+    if (!conflict.ok) {
+      expect(conflict.error.code).toBe("FINGERPRINT_MISMATCH");
+    }
+
+    const remainingCleanup = await new PostgresNarratorBattleCleanup(pool).cleanupForPlayer(
+      fixture.playerA,
+    );
+    expect(remainingCleanup).toBeNull();
+
+    const counts = await pool.query<{
+      ended_events: string;
+      snapshots: string;
+      open_windows: string;
+      encounter_revision: string;
+    }>(
+      `SELECT
+        (SELECT count(*)::text FROM battle_events
+         WHERE battle_id=$1 AND event_type='BattleEnded') AS ended_events,
+        (SELECT count(*)::text FROM battle_state_snapshots
+         WHERE battle_id=$1 AND version=1) AS snapshots,
+        (SELECT count(*)::text FROM battle_turn_windows
+         WHERE battle_id=$1 AND status IN ('COLLECTING','LOCKED')) AS open_windows,
+        (SELECT revision::text FROM encounters WHERE id=$2) AS encounter_revision`,
+      [fixture.battleId, encounterId],
+    );
+
+    expect(counts.rows[0]).toEqual({
+      ended_events: "1",
+      snapshots: "1",
+      open_windows: "0",
+      encounter_revision: "1",
+    });
+  }, 20000);
   it("persists a PVP surrender once, awards the opponent, and cancels the live window", async () => {
     const fixture = await seedLockedFixture(pool);
     const cancellation = new PostgresBattleCancellation(pool);

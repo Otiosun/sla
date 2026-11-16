@@ -192,6 +192,54 @@ export class PostgresBattleCancellation implements BattleCancellationPort {
           [input.battleId],
         );
 
+        // CANONICAL_CANCEL_WINDOW_AND_WILD_V29
+        // Keep pending turns consistent with the terminal Battle.
+        await client.query(
+          `UPDATE battle_turn_windows
+           SET status = 'CANCELLED',
+               locked_at = COALESCE(locked_at, now()),
+               revision = revision + 1
+           WHERE battle_id = $1
+             AND status IN ('COLLECTING', 'LOCKED')`,
+          [input.battleId],
+        );
+
+        // Close only the WILD encounter belonging to this Battle.
+        const wild = await client.query<{ encounter_id: string }>(
+          `SELECT encounter.id::text AS encounter_id
+           FROM encounters encounter
+           JOIN battles battle ON battle.encounter_id = encounter.id
+           WHERE battle.id = $1
+             AND battle.battle_type = 'WILD'
+             AND battle.status = 'CANCELLED'
+             AND encounter.status = 'IN_BATTLE'
+           FOR UPDATE OF encounter`,
+          [input.battleId],
+        );
+
+        const encounterId = wild.rows[0]?.encounter_id;
+        if (encounterId !== undefined) {
+          await client.query(
+            `UPDATE encounter_wild_snapshots
+             SET status = 'FLED', updated_at = now()
+             WHERE encounter_id = $1 AND status = 'ACTIVE'`,
+            [encounterId],
+          );
+
+          const closed = await client.query(
+            `UPDATE encounters
+             SET status = 'CLOSED',
+                 revision = revision + 1,
+                 updated_at = now(),
+                 closed_at = COALESCE(closed_at, now())
+             WHERE id = $1 AND status = 'IN_BATTLE'`,
+            [encounterId],
+          );
+
+          if (closed.rowCount !== 1) {
+            throw new Error("Cancelled WILD encounter changed after row lock");
+          }
+        }
         return { kind: "PERSISTED", state: nextState, events };
       },
       { isolationLevel: "READ COMMITTED" },
